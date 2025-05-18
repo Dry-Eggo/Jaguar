@@ -1,0 +1,39 @@
+extern malloc(bytes: u64): ptr<void>;
+extern realloc(__n: ptr<void>, bytes: u64): ptr<void>;
+extern jprintln(fmt: str, ...): void;
+
+// this is a void* type dynamic array
+// to not be used after implementation of generics
+
+block Array {
+	data: ptr<ptr<void>>,
+	len: u64,
+	cap: u64,
+
+	fn push(self, n: ptr<void>) :int {
+		if self.len == self.cap {
+			self.grow();
+			// jprintln("herre");
+		}
+		self.data[self.len - 1] = n;
+		self.len = self.len + 1;
+		ret 0;
+	}
+
+	fn grow(self): int {
+		self.data = realloc(self.data as ptr<void>, self.cap * 2) as ptr<ptr<void>>;
+		self.cap = self.cap * 2;
+	}
+
+	fn at(self, n: u64) : ptr<void> {
+		ret self.data[n];
+	}
+}
+
+fn new_array(): Array {
+	let a: ptr<Array> = malloc(24) as ptr<Array>;
+	a.data = malloc(8 * 8) as ptr<ptr<void>>;
+	a.cap = 8 * 8;
+	a.len = 1;
+	ret *a;	
+}

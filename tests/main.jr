@@ -1,0 +1,82 @@
+extern jprintln(fmt: str, ...): void;
+extern input(bytes: int, prompt: str): str;
+extern __panic(msg: str): void;
+extern jformat(fmt: str, ...): str;
+extern println(msg: str): void;
+extern malloc(bytes: u64): ptr<void>;
+extern realloc(pointer: ptr<void>, bytes: u64): ptr<void>;
+
+block opt[T] {
+	value: T,
+	is_good: int,
+	fn unwrap(self): T {
+		if self.is_good != 1 {
+			__panic(jformat("Unwrapping a bad option"));
+		}
+		ret self.value;
+	}
+	fn is_some(self): int {
+		ret self.is_good;
+	}
+}
+ 
+block result[U, E] {
+ 	ok: U,
+ 	err: E,
+}
+ 
+fn newopt[T](i: T): opt<T> {
+ 	ret {value: i, is_good: 1};
+}
+
+block vec[T] {
+	data: ptr<T>,
+	len: u64,
+	cap: u64,
+
+	fn push(self, __n: T): void {
+		if self.len == self.cap {
+			self.grow();
+		}
+		self.data[self.len - 1] = __n;
+		self.len = self.len +1;
+	}
+	fn at(self, __idx: u64): T {
+		if __idx >= self.len - 1 {
+			__panic("Out of bounds: Vec<_>");
+		}
+		ret self.data[__idx];
+	}
+	fn pop(self): T {
+		if self.len - 1 <= 0 {
+			__panic("pop called on empty vector: Vec<_>");
+		}
+		ret self.data[self.len - 1];
+	}
+	fn grow(self): void {
+		self.data = realloc(self.data as ptr<void>, self.cap * 2) as ptr<T>;
+		self.cap = self.cap * 2;
+	}
+	fn len(self): int {
+		ret self.len;
+	}
+	fn capacity(self): int {
+		ret self.cap;
+	}
+	fn get(self, __idx: int) : opt<T> {
+		ret {value: self.data[__idx]};
+	}
+}
+
+fn newVec[T] (): vec<T> {
+	ret {data: malloc(8 * 8) as ptr<T>, len: 1, cap: 8};
+}
+
+
+fn main(): int {
+	let temp : vec<str> = newVec<str>();
+	temp.push("My name is abdul");
+	let t := temp.at(0);
+	println(t);
+	ret 0;
+}

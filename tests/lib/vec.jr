@@ -1,0 +1,12 @@
+extern malloc(bytes: u64): ptr<void>;
+
+block vec[T] {
+	data: ptr<T>,
+	len: u64,
+	cap: u64,
+}
+
+fn newvec[T](): vec<T> {
+	let temp : vec<T> = {data: malloc(24) as ptr<T>, len: 0, cap: 0};
+	ret temp;
+}	

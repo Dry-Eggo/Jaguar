@@ -1,0 +1,46 @@
+extern println(n: str): void;
+block String {
+	d: str,
+}
+
+/*
+	accessible through String_Obj.to_str()
+	let var: String = new_str("Hello World");
+	assert(var.to_str(), "Hello World");
+*/
+fn to_str for String(self): str {
+	ret self.d;
+}
+fn at for String(self, n: int): char {
+	ret self.d[n];
+}
+
+fn new_str(n: str): String {
+	let tmp: String = String {d: n};
+	ret tmp;
+}
+
+// bundle testing
+bundle core {
+	let x: int = 3;
+	// only constants, bundles, functions and blocks allowed in this context
+	fn foo(){
+		// assert("Dry is the best", true); err: whaaaa?
+		println("nested bundles");
+	}
+	block tester_type {
+		x:int,
+	}
+}
+// bundle table rest after bundle exit?
+fn bundle_tester() {
+	/* pass */
+	core::foo();
+}
+
+// bundle types?
+fn bundle_tester_type(cz: int): core::tester_type {
+	// pass
+	let tmp : core::tester_type = core::tester_type {x: cz};
+	ret tmp;
+}

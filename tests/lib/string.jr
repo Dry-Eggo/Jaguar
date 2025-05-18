@@ -1,0 +1,164 @@
+extern strlen(n: str): i32;
+extern strcat(d:ptr<void>, s:str): void;
+extern malloc(s: u64): ptr<void>;
+extern realloc(p: ptr<void>, n: u64): ptr<void>;
+extern rzapp(d: str, m: str): str;
+extern strslice(s:str , n: int, pos: int): str;
+extern strmrg(m: str, n:str): str;
+extern jformat(fmt: str, ...): str;
+extern jprintln(fmt: str, ...): void;
+extern strdup(m:str): str;
+extern mem_get(bytes: i64): ptr<void>;
+extern memset(d: str, v: int, size:int): void;
+
+block string {
+	data: str,
+	len: int,
+
+	fn size(self): i32 {
+		ret self.len;
+	}
+	fn to_str(self): str {
+		ret strdup(self.data);
+	}
+
+	/*
+	*
+	* at(self, int):ch
+	* Bounds check is done at runtime
+	* return the character at a given index
+	*
+	*/
+
+	fn at(self, idx: int): char {
+		ret self.data[idx];
+	}
+
+	fn append(self, m: str): int {
+    	self.data = strdup(self.data);
+    	let oldlen: int = strlen(self.data);
+    	let addlen: int = strlen(m);
+	    
+    	self.data = realloc(self.data as ptr<void>, oldlen + addlen + 1) as str;
+    	strcat(self.data as ptr<void>, m);
+		ret 0;
+	}
+
+	/*
+	 * slice : returns a portion of the inlying data from
+	 * index 'n' to index 'p'
+	 *
+	 */
+
+	fn slice(self, n:int, p: int) :str {
+		ret strslice(self.data, n, p);
+	}
+
+	/*
+	 * substr: returns a portion of the inlying data.
+	 * starts from 'n' and gives +'p' amount of chars
+	 *
+	 */
+
+	fn substr(self, n:int, p:int) :str {
+		ret self.slice(n, n + p);
+	}
+
+	/*
+	 * rev : reverses the inlying data
+	 *
+	 */
+	fn rev(self) : str {
+		let buffer: string = {data: "", len: 0};
+		for (i = self.size() - 1; i >= 0; i = i - 1) {
+			buffer.append(jformat("{c}", self.at(i)));
+		}
+		ret strdup(buffer.to_str());
+	}
+
+	/*
+	 * find : returns the first index of 'c' in the inying 
+	 * data
+	 *
+	 */
+
+	fn find(self, c: char): int {
+		let i : int = self.size();
+		let ret_val: int = i + i;
+
+		for (n = 0; n < i; n = n+1) {
+			let t : char= self.at(n);
+			if t == c {
+				ret_val = n;
+				break;
+			}
+		}
+		ret ret_val;
+	}
+	/* 
+	 * eq : returns '1' is 'sub' is equal to itself and '0' 
+	 * if not
+	 *
+	 */
+	fn eq(self, sub: str): int {
+		if self.len != strlen(sub) { ret 0; }
+		for(i = 0; i < self.len; i=i+1) {
+			if self.at(i) != sub[i] {
+				ret 0;
+			}
+		}
+		ret 1;
+	}
+	/* 
+	 * is_empty?
+	 */
+	fn is_empty(self): int {
+		ret (self.len == 0);
+	}
+
+	fn to_upper(self): str {
+		let buffer : string = {data: "", len:0};
+		for (i = 0; i < self.len; i=i+1) {
+			let t : char = self.at(i);
+			buffer.append(jformat("{c}", t.to_upper()));
+		}
+		ret buffer.to_str();
+	}
+
+	fn to_lower(self): str {
+		let buffer : string = {data: "", len:0};
+		for (i = 0; i < self.len; i=i+1) {
+			let t: char = self.at(i);
+			buffer.append(jformat("{c}", t.to_lower()));
+		}
+		ret buffer.to_str();
+	}
+
+	// fn split(self, delim: char) : arr::Array {
+		// let buffer: arr::Array = arr::new_array();
+		// let temp: string = {data: "", len: 0};
+		// for (i = 0; i < self.len; i = i+1) {
+			// if self.at(i) == delim {
+				// buffer.push(temp.to_str() as ptr<void>);
+				// temp.clear();
+				// continue;
+			// }
+			// temp.append(jformat("{c}", self.at(i)));
+		// }
+		// buffer.push(temp.to_str() as ptr<void>);
+		// ret buffer;
+	// }
+
+	fn clear(self): void {
+		self.data = "";
+	}
+
+}
+
+fn new_string(m: str): string {
+	let tmp: string = {data: m, len: strlen(m)};
+	ret tmp;
+}
+
+
+
