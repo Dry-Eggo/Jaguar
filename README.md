@@ -29,6 +29,8 @@ Features (Implemented)
 
 Basic Structure
 
+```jaguar
+
 // This is a single-line comment
 
 fn foo() { // No return type specified = void
@@ -44,6 +46,7 @@ fn main() {
   foo();
 }
 
+```
 
 ---
 
@@ -52,12 +55,18 @@ Blocks
 Blocks are the core user-defined types in Jaguar — like structs but better.
 They can hold both data and methods.
 
+```
+
 block Person {
   name: str,
   age: int,
 }
 
+```
+
 Methods inside a block:
+
+```
 
 block Person {
   name: str,
@@ -68,13 +77,18 @@ block Person {
   }
 }
 
+```
+
 Usage:
+
+```
 
 fn main() {
   let me: Person = { name: "Eggo", age: 17 };
   me.sayHi(); // Output: Eggo says hi
 }
 
+```
 
 ---
 
@@ -94,6 +108,8 @@ Generics (Partially Implemented)
 
 Jaguar includes early-stage generics, allowing parametric polymorphism in blocks and functions.
 
+```
+
 block Option[T] {
   value: T,
 
@@ -108,17 +124,23 @@ fn newOption[T](value: T): Option<T> {
 }
 
 
+```
+
 ---
 
 How to Use
 
 To build the project:
 
+```
 $ cargo build
+```
 
 To compile a Jaguar source file:
 
+```
 $ ./target/debug/jagc path/to/source.jr -o path/to/output
+```
 
 Jaguar creates a directory called build/ to store build artifacts.
 Avoid naming your own directories build/ inside your projects to prevent conflicts.
