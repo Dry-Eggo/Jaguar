@@ -1,114 +1,141 @@
 
-# Jaguar
+Jaguar
 
-Jaguar is a systems programming language aimed for expressiveness, direct C interop, and a layout that reads clean - like a blend of modern syntax and low-level power.
+Jaguar is a systems programming language focused on expressiveness, direct C interop, and a layout that reads clean — like a blend of modern syntax and low-level power.
 
-> Still in early development. Very Restrictive because of unfinshed features
+> Still in early development. Some features are restrictive or missing. Expect sharp edges.
 
-The Jaguar Project was the the aim of giving users a laguage with Rust-like syntax while still offering the system power of C/C++. No Borrow-Checker. No GC.
+
+
 
 ---
 
-## Features (Implemented)
+Why Jaguar?
 
-### **Basic Structure**
+The Jaguar Project was born from the idea of giving users a language with Rust-like syntax but with the raw control and performance of C/C++.
 
-```jaguar
+No borrow checker
 
-// this is a single-line comment
+No garbage collector
 
-fn foo() { // no return type specification = void
+No runtime overhead
+Just straight-up systems programming — your metal, your rules.
+
+
+
+---
+
+Features (Implemented)
+
+Basic Structure
+
+// This is a single-line comment
+
+fn foo() { // No return type specified = void
   jprintln("Hello World");
 }
 
-fn main() { 
-  /* 
-   * Exception is main. return type is inferred to int 
-   * a.k.a i32
+fn main() {
+  /*
+   * Special case: main's return type is inferred as int (i32)
    */
-
-  let bar : str = "baz"; // Varibale definition
+  let bar: str = "baz"; // Variable declaration
 
   foo();
 }
-```
 
-### **Blocks**
 
-Blocks are primarily containers for data and behaviour. Think Structs.
-```jagaur
+---
+
+Blocks
+
+Blocks are the core user-defined types in Jaguar — like structs but better.
+They can hold both data and methods.
+
 block Person {
   name: str,
   age: int,
 }
-```
-Blocks can also hold methods too.
 
-```jaguar
+Methods inside a block:
+
 block Person {
   name: str,
   age: int,
+
   fn sayHi(self) {
     jprintln("{s} says hi", self.name);
   }
 }
-```
-usage:
 
-```jaguar
+Usage:
+
 fn main() {
-
-  let me: Block = {name: "Eggo", age: 17};
-  me.sayHi(); // output 'Eggo says hi'
-
+  let me: Person = { name: "Eggo", age: 17 };
+  me.sayHi(); // Output: Eggo says hi
 }
-```
 
-### **C-Interoperability**
 
-Jaguar is capable of using externally decalared symbols. although it is currently limited to functions.
+---
 
-```jaguar
+C Interoperability
+
+Jaguar supports external function declarations, allowing you to directly call C functions.
+
 extern malloc(bytes: u64): ptr<void>;
-```
+extern free(ptr: ptr<void>): void;
 
-It allows for a level of integration to exsisting C codebases.
+This makes it easy to integrate Jaguar with existing C codebases — useful for system tools, custom allocators, or FFI-heavy projects.
 
-### **Generics**
-> Not fully implemented. but works to some extent
 
-```jaguar
+---
 
-// Defining a generic block
+Generics (Partially Implemented)
+
+Jaguar includes early-stage generics, allowing parametric polymorphism in blocks and functions.
+
 block Option[T] {
   value: T,
+
   fn unwrap(self): T {
-    // this is purely for example
+    // For demo purposes
     ret self.value;
   }
 }
 
-// Defining a generic function
 fn newOption[T](value: T): Option<T> {
-  ret {value: value};
+  ret { value: value };
 }
 
-```
 
-> As i said before, Jaguar is still in it very early stages. more features will be added as it grows to make it a more standard, usable language
+---
+
+How to Use
+
+To build the project:
+
+$ cargo build
+
+To compile a Jaguar source file:
+
+$ ./target/debug/jagc path/to/source.jr -o path/to/output
+
+Jaguar creates a directory called build/ to store build artifacts.
+Avoid naming your own directories build/ inside your projects to prevent conflicts.
 
 
-# How to use
-* To build the project
-```
-  $ cargo build
-```
+---
 
-* To use the compiler
-```
-  $ jagc source.jr -o output.jr
-```
-> Note: Use the actual path to the compiler and correctly specify path to source and output.
+Status
+
+Jaguar is in active development.
+Features like type inference, traits, shorthands, while-loops, and full error diagnostics are coming.
+The core goal is to make Jaguar a usable, expressive systems language that feels modern but stays manual.
 
 
-> Jaguar initializes a directory called "build" for build artifacts so avoid having an exsisting build directory in the same project folder
+---
+
+License
+
+This project is licensed under the MIT License.
+
