@@ -96,3 +96,19 @@ fn newOption[T](value: T): Option<T> {
 ```
 
 > As i said before, Jaguar is still in it very early stages. more features will be added as it grows to make it a more standard, usable language
+
+
+# How to use
+* To build the project
+```
+  $ cargo build
+```
+
+* To use the compiler
+```
+  $ jagc source.jr -o output.jr
+```
+> Note: Use the actual path to the compiler and correctly specify path to source and output.
+
+
+> Jaguar initializes a directory called "build" for build artifacts so avoid having an exsisting build directory in the same project folder
