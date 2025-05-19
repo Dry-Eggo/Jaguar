@@ -30,3 +30,5 @@ compile:
 debug:
 	@gdb ./tests/main
 
+build_jagc:
+	@cargo build

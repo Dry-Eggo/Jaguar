@@ -85,15 +85,15 @@ pub struct Generator {
     immediate_counter: u8,
     inputpath: String,
     is_included: bool,
-    outfilename: String,
-    outfilepath: String,
+    pub(crate) outfilename: String,
+    pub(crate) outfilepath: String,
     pub source: Vec<Spanned<Node>>,
     source_code: String,
     pub text: String,
     track_rsp: bool,
     types: TTable,
     var_table: VTable,
-    buildpath: Box<PathBuf>,
+    pub(crate) buildpath: Box<PathBuf>,
     generic_stream: String,
     generic_headers: Vec<(String, String)>, // path, content
     current_scope_return_type: Type,        // Validating return statements
@@ -362,7 +362,6 @@ impl Generator {
                             for gf in &mut new_bundle.gfunctions {
                                 let g = gf.clone();
                                 for arg in &mut gf.args {
-                                    println!("Wrapping ({}, {:?})", arg.name.clone(), g);
                                     if !is_builtin(arg.type_hint.clone())
                                         && !gf.generics.contains(&arg.type_hint)
                                     {
@@ -562,272 +561,272 @@ impl Generator {
                     mut meths,
                     generics,
                 } => {
-                    self.cur_body_type = BodyType::GENERIC;
-                    let layout: StructLayout;
-                    let mut b_fields: HashMap<String, FieldLayout> = HashMap::new();
-                    let save = self.cur_section.clone();
-                    self.cur_section = Section::HEADER;
-                    let generic_header_path = format!(
-                        "{}/generic_{}.h",
-                        self.buildpath.to_str().unwrap(),
-                        self.outfilename
-                    );
-                    let mut generic_entry = self
-                        .generic_headers
-                        .iter_mut()
-                        .find(|p| p.0 == generic_header_path)
-                        .cloned();
-                    if generic_entry.is_none() {
-                        self.generic_headers.push((generic_header_path.clone(), format!("#pragma once\n\n#include \"/home/dry/Documents/Eggo/jaguar/std/claw.h\"\n")));
-                    }
-                    let mut stream = String::new();
-                    stream.push_str(&format!(
-                        "\n\n#define GENERIC_BLOCK_{}(",
-                        name.to_uppercase()
-                    ));
-                    let mut gname = name.clone();
-                    for (i, generic) in generics.clone().iter().enumerate() {
-                        stream.push_str(&format!("{}", generic));
-                        gname += &format!("_##{generic}");
-                        if i != generics.len() - 1 {
-                            stream.push_str(",");
-                            gname += "##";
-                        }
-                    }
-                    stream.push_str(") ");
-                    stream.push_str(format!("typedef struct {gname} {{\\").as_str());
-                    let mut encountered_fields: Vec<(String, Span)> = vec![];
-                    for (_i, field) in fields.clone().iter().enumerate() {
-                        if let Node::Feilds {
-                            name: fname,
-                            type_hint,
-                        } = field.node.clone()
-                        {
-                            if let Some(find) = encountered_fields.iter().find(|p| p.0 == fname) {
-                                self.consume(CompileError::new(
-                                    format!("Redefinition of field '{fname}'"),
-                                    None,
-                                    field.span.clone(),
-                                    ErrLevel::ERROR,
-                                ));
-                                self.consume(CompileError::new(
-                                    format!("Previously Defined here"),
-                                    None,
-                                    find.1.clone(),
-                                    ErrLevel::WARNING,
-                                ));
-                                self.flush();
-                            }
-                            stream.push_str(
-                                format!("\n\t{} {fname}; \\", type_hint.to_str()).as_str(),
-                            );
-                            encountered_fields.push((fname.clone(), field.span.clone()));
-                            b_fields.insert(fname.clone(), FieldLayout { ty: type_hint });
-                        }
-                    }
-                    let g = self.gfromstr(generics.clone());
-                    layout = StructLayout {
-                        name: Type::Custom(name.clone()),
-                        feilds: b_fields.clone(),
-                        methods: Vec::new(),
-                        file: self.current_file.clone(),
-                    };
-                    self.types.add_type(Type::Custom(name.clone()), layout);
-                    stream.push_str(format!("\n}} {gname}; \\").as_str());
-                    let type_generics = self.gfromstr(generics.clone());
-                    for mut m in &mut meths {
-                        if let Ok(Spanned {
-                            node:
-                                Node::FnStmt {
-                                    body: _,
-                                    args,
-                                    name: _,
-                                    ret_type: _,
-                                    returns,
-                                    return_val,
-                                    vardaic: _,
-                                    mangled_name: _,
-                                },
-                            span: _,
-                        }) = m
-                        {
-                            for a in args {
-                                if type_generics.contains(&a.type_hint) {
-                                    a.type_hint = Type::GenericAtom {
-                                        ty: Box::new(a.type_hint.clone()),
-                                    };
-                                }
-                            }
-                        }
-                    }
-                    for m in meths.clone() {
-                        if let Spanned {
-                            node:
-                                Node::FnStmt {
-                                    body,
-                                    args,
-                                    name: fname,
-                                    ret_type,
-                                    returns,
-                                    return_val,
-                                    vardaic,
-                                    mangled_name,
-                                },
-                            span,
-                        } = m.clone().unwrap()
-                        {
-                            let targ_type = Type::Custom(name.clone());
-                            let layout = self.get_layout(targ_type.clone());
-                            if matches!(layout, None) {
-                                println!(
-                                    "ToDo Err system: Not a type {}",
-                                    targ_type.debug().clone()
-                                );
-                                exit(1);
-                            }
-                            match layout
-                                .as_ref()
-                                .unwrap()
-                                .clone()
-                                .methods
-                                .clone()
-                                .iter()
-                                .find(|m| m.get_name() == fname.clone())
-                            {
-                                Some(plug) => {
-                                    self.consume(CompileError::new(
-                                        format!(
-                                            "Method {} already exsist for type {}",
-                                            fname, name
-                                        ),
-                                        None,
-                                        span.clone(),
-                                        ErrLevel::ERROR,
-                                    ));
-                                }
-                                None => (),
-                            }
-                            let mut context = Context::new(
-                                name.clone(),
-                                Some(Box::new(self.current_context.clone())),
-                            );
-                            let mut oplugin_name = String::new();
-                            let v = Some(g.clone());
-                            if v.is_some() {
-                                oplugin_name += &targ_type.to_str();
-                                for t in v.clone().unwrap().iter().enumerate() {
-                                    oplugin_name += &format!("_##{}", t.1.to_str());
-                                    if t.0 == v.clone().unwrap().len() - 1 {
-                                        oplugin_name += "##_";
-                                    }
-                                }
-                            }
-                            oplugin_name += &fname.clone();
-                            if let Type::Generic {
-                                base: _,
-                                generics: _,
-                            } = ret_type.clone()
-                            {
-                                stream += &format!(
-                                    "\n{}\\",
-                                    self.generate_generic_block_instance(ret_type.clone())
-                                );
-                            }
-                            stream.push_str(&format!(
-                                "\nextern inline {} {}(",
-                                ret_type.clone().genimpl(),
-                                oplugin_name.clone()
-                            ));
-                            for (i, a) in args.clone().iter_mut().enumerate() {
-                                let mut modif = "";
-                                if a.name == "self" {
-                                    modif = "*";
-                                    a.type_hint = targ_type.clone();
-                                    stream.push_str(&format!("{gname}{modif} {}", a.name.clone()));
-                                } else {
-                                    stream.push_str(&format!(
-                                        "{}{modif} {}",
-                                        a.type_hint.clone().to_str(),
-                                        a.name.clone()
-                                    ));
-                                }
-                                if i != args.clone().len() - 1 {
-                                    stream.push_str(",");
-                                }
-                                context.add(Var::new(
-                                    a.name.clone(),
-                                    a.type_hint.clone(),
-                                    a.is_ref,
-                                    None,
-                                    m.clone().unwrap().span,
-                                ));
-                            }
-                            stream.push_str("); \\");
-                            let mut f = Function::new(
-                                fname.clone(),
-                                context,
-                                ret_type.clone(),
-                                returns,
-                                body.clone().node,
-                            );
-                            f.args = args;
-                            self.register_plugin(Type::Custom(name.clone()), f);
-                        }
-                    }
-                    self.generics.push(Generic {
-                        name: Type::Custom(name.clone()),
-                        generics: g,
-                    });
-                    for meth in meths.clone() {
-                        if let Spanned {
-                            node:
-                                Node::FnStmt {
-                                    body,
-                                    args,
-                                    name: fname,
-                                    ret_type,
-                                    returns,
-                                    return_val,
-                                    vardaic,
-                                    mangled_name,
-                                },
-                            span,
-                        } = meth.clone().unwrap().clone()
-                        {
-                            let p = Node::PluginStatement {
-                                name: fname.clone(),
-                                ret_val: return_val,
-                                ret_type: Box::new(ret_type.clone()),
-                                body: body.clone(),
-                                targ_type: Type::Custom(name.clone()),
-                                args: args.clone(),
-                            };
+                    // self.cur_body_type = BodyType::GENERIC;
+                    // let layout: StructLayout;
+                    // let mut b_fields: HashMap<String, FieldLayout> = HashMap::new();
+                    // let save = self.cur_section.clone();
+                    // self.cur_section = Section::HEADER;
+                    // let generic_header_path = format!(
+                    //     "{}/generic_{}.h",
+                    //     self.buildpath.to_str().unwrap(),
+                    //     self.outfilename
+                    // );
+                    // let mut generic_entry = self
+                    //     .generic_headers
+                    //     .iter_mut()
+                    //     .find(|p| p.0 == generic_header_path)
+                    //     .cloned();
+                    // if generic_entry.is_none() {
+                    //     self.generic_headers.push((generic_header_path.clone(), format!("#pragma once\n\n#include \"/home/dry/Documents/Eggo/jaguar/std/claw.h\"\n")));
+                    // }
+                    // let mut stream = String::new();
+                    // stream.push_str(&format!(
+                    //     "\n\n#define GENERIC_BLOCK_{}(",
+                    //     name.to_uppercase()
+                    // ));
+                    // let mut gname = name.clone();
+                    // for (i, generic) in generics.clone().iter().enumerate() {
+                    //     stream.push_str(&format!("{}", generic));
+                    //     gname += &format!("_##{generic}");
+                    //     if i != generics.len() - 1 {
+                    //         stream.push_str(",");
+                    //         gname += "##";
+                    //     }
+                    // }
+                    // stream.push_str(") ");
+                    // stream.push_str(format!("typedef struct {gname} {{\\").as_str());
+                    // let mut encountered_fields: Vec<(String, Span)> = vec![];
+                    // for (_i, field) in fields.clone().iter().enumerate() {
+                    //     if let Node::Feilds {
+                    //         name: fname,
+                    //         type_hint,
+                    //     } = field.node.clone()
+                    //     {
+                    //         if let Some(find) = encountered_fields.iter().find(|p| p.0 == fname) {
+                    //             self.consume(CompileError::new(
+                    //                 format!("Redefinition of field '{fname}'"),
+                    //                 None,
+                    //                 field.span.clone(),
+                    //                 ErrLevel::ERROR,
+                    //             ));
+                    //             self.consume(CompileError::new(
+                    //                 format!("Previously Defined here"),
+                    //                 None,
+                    //                 find.1.clone(),
+                    //                 ErrLevel::WARNING,
+                    //             ));
+                    //             self.flush();
+                    //         }
+                    //         stream.push_str(
+                    //             format!("\n\t{} {fname}; \\", type_hint.to_str()).as_str(),
+                    //         );
+                    //         encountered_fields.push((fname.clone(), field.span.clone()));
+                    //         b_fields.insert(fname.clone(), FieldLayout { ty: type_hint });
+                    //     }
+                    // }
+                    // let g = self.gfromstr(generics.clone());
+                    // layout = StructLayout {
+                    //     name: Type::Custom(name.clone()),
+                    //     feilds: b_fields.clone(),
+                    //     methods: Vec::new(),
+                    //     file: self.current_file.clone(),
+                    // };
+                    // self.types.add_type(Type::Custom(name.clone()), layout);
+                    // stream.push_str(format!("\n}} {gname}; \\").as_str());
+                    // let type_generics = self.gfromstr(generics.clone());
+                    // for mut m in &mut meths {
+                    //     if let Ok(Spanned {
+                    //         node:
+                    //             Node::FnStmt {
+                    //                 body: _,
+                    //                 args,
+                    //                 name: _,
+                    //                 ret_type: _,
+                    //                 returns,
+                    //                 return_val,
+                    //                 vardaic: _,
+                    //                 mangled_name: _,
+                    //             },
+                    //         span: _,
+                    //     }) = m
+                    //     {
+                    //         for a in args {
+                    //             if type_generics.contains(&a.type_hint) {
+                    //                 a.type_hint = Type::GenericAtom {
+                    //                     ty: Box::new(a.type_hint.clone()),
+                    //                 };
+                    //             }
+                    //         }
+                    //     }
+                    // }
+                    // for m in meths.clone() {
+                    //     if let Spanned {
+                    //         node:
+                    //             Node::FnStmt {
+                    //                 body,
+                    //                 args,
+                    //                 name: fname,
+                    //                 ret_type,
+                    //                 returns,
+                    //                 return_val,
+                    //                 vardaic,
+                    //                 mangled_name,
+                    //             },
+                    //         span,
+                    //     } = m.clone().unwrap()
+                    //     {
+                    //         let targ_type = Type::Custom(name.clone());
+                    //         let layout = self.get_layout(targ_type.clone());
+                    //         if matches!(layout, None) {
+                    //             println!(
+                    //                 "ToDo Err system: Not a type {}",
+                    //                 targ_type.debug().clone()
+                    //             );
+                    //             exit(1);
+                    //         }
+                    //         match layout
+                    //             .as_ref()
+                    //             .unwrap()
+                    //             .clone()
+                    //             .methods
+                    //             .clone()
+                    //             .iter()
+                    //             .find(|m| m.get_name() == fname.clone())
+                    //         {
+                    //             Some(plug) => {
+                    //                 self.consume(CompileError::new(
+                    //                     format!(
+                    //                         "Method {} already exsist for type {}",
+                    //                         fname, name
+                    //                     ),
+                    //                     None,
+                    //                     span.clone(),
+                    //                     ErrLevel::ERROR,
+                    //                 ));
+                    //             }
+                    //             None => (),
+                    //         }
+                    //         let mut context = Context::new(
+                    //             name.clone(),
+                    //             Some(Box::new(self.current_context.clone())),
+                    //         );
+                    //         let mut oplugin_name = String::new();
+                    //         let v = Some(g.clone());
+                    //         if v.is_some() {
+                    //             oplugin_name += &targ_type.to_str();
+                    //             for t in v.clone().unwrap().iter().enumerate() {
+                    //                 oplugin_name += &format!("_##{}", t.1.to_str());
+                    //                 if t.0 == v.clone().unwrap().len() - 1 {
+                    //                     oplugin_name += "##_";
+                    //                 }
+                    //             }
+                    //         }
+                    //         oplugin_name += &fname.clone();
+                    //         if let Type::Generic {
+                    //             base: _,
+                    //             generics: _,
+                    //         } = ret_type.clone()
+                    //         {
+                    //             stream += &format!(
+                    //                 "\n{}\\",
+                    //                 self.generate_generic_block_instance(ret_type.clone())
+                    //             );
+                    //         }
+                    //         stream.push_str(&format!(
+                    //             "\nextern inline {} {}(",
+                    //             ret_type.clone().genimpl(),
+                    //             oplugin_name.clone()
+                    //         ));
+                    //         for (i, a) in args.clone().iter_mut().enumerate() {
+                    //             let mut modif = "";
+                    //             if a.name == "self" {
+                    //                 modif = "*";
+                    //                 a.type_hint = targ_type.clone();
+                    //                 stream.push_str(&format!("{gname}{modif} {}", a.name.clone()));
+                    //             } else {
+                    //                 stream.push_str(&format!(
+                    //                     "{}{modif} {}",
+                    //                     a.type_hint.clone().to_str(),
+                    //                     a.name.clone()
+                    //                 ));
+                    //             }
+                    //             if i != args.clone().len() - 1 {
+                    //                 stream.push_str(",");
+                    //             }
+                    //             context.add(Var::new(
+                    //                 a.name.clone(),
+                    //                 a.type_hint.clone(),
+                    //                 a.is_ref,
+                    //                 None,
+                    //                 m.clone().unwrap().span,
+                    //             ));
+                    //         }
+                    //         stream.push_str("); \\");
+                    //         let mut f = Function::new(
+                    //             fname.clone(),
+                    //             context,
+                    //             ret_type.clone(),
+                    //             returns,
+                    //             body.clone().node,
+                    //         );
+                    //         f.args = args;
+                    //         self.register_plugin(Type::Custom(name.clone()), f);
+                    //     }
+                    // }
+                    // self.generics.push(Generic {
+                    //     name: Type::Custom(name.clone()),
+                    //     generics: g,
+                    // });
+                    // for meth in meths.clone() {
+                    //     if let Spanned {
+                    //         node:
+                    //             Node::FnStmt {
+                    //                 body,
+                    //                 args,
+                    //                 name: fname,
+                    //                 ret_type,
+                    //                 returns,
+                    //                 return_val,
+                    //                 vardaic,
+                    //                 mangled_name,
+                    //             },
+                    //         span,
+                    //     } = meth.clone().unwrap().clone()
+                    //     {
+                    //         let p = Node::PluginStatement {
+                    //             name: fname.clone(),
+                    //             ret_val: return_val,
+                    //             ret_type: Box::new(ret_type.clone()),
+                    //             body: body.clone(),
+                    //             targ_type: Type::Custom(name.clone()),
+                    //             args: args.clone(),
+                    //         };
 
-                            let o = self.gen_expr(
-                                Box::new(Spanned { node: p, span }),
-                                Type::Any,
-                                RefStyle::COPY,
-                            );
-                            stream += &o.stream;
-                        }
-                    }
-                    self.cur_section = save;
-                    let mut g = vec![];
-                    for s in generics {
-                        g.push(Type::Custom(s));
-                    }
-                    self.generics.push(Generic {
-                        name: Type::Custom(name),
-                        generics: g,
-                    });
-                    let mut fgeneric_entry = self
-                        .generic_headers
-                        .iter_mut()
-                        .find(|p| p.0 == generic_header_path);
-                    if fgeneric_entry.is_some() {
-                        fgeneric_entry.unwrap().1 += &stream.clone();
-                    }
-                    self.cur_body_type = BodyType::NORMAL;
+                    //         let o = self.gen_expr(
+                    //             Box::new(Spanned { node: p, span }),
+                    //             Type::Any,
+                    //             RefStyle::COPY,
+                    //         );
+                    //         stream += &o.stream;
+                    //     }
+                    // }
+                    // self.cur_section = save;
+                    // let mut g = vec![];
+                    // for s in generics {
+                    //     g.push(Type::Custom(s));
+                    // }
+                    // self.generics.push(Generic {
+                    //     name: Type::Custom(name),
+                    //     generics: g,
+                    // });
+                    // let mut fgeneric_entry = self
+                    //     .generic_headers
+                    //     .iter_mut()
+                    //     .find(|p| p.0 == generic_header_path);
+                    // if fgeneric_entry.is_some() {
+                    //     fgeneric_entry.unwrap().1 += &stream.clone();
+                    // }
+                    // self.cur_body_type = BodyType::NORMAL;
                 }
                 Node::ReVal { name, value } => {
                     let s = self.gen_expr(Box::new(node), Type::Any, RefStyle::COPY);
@@ -938,8 +937,8 @@ impl Generator {
                     generics,
                     args,
                 } => {
-                    let t = self.gen_expr(Box::new(node), Type::Any, RefStyle::COPY);
-                    self.emit(&format!("{};", t.stream));
+                    // let t = self.gen_expr(Box::new(node), Type::Any, RefStyle::COPY);
+                    // self.emit(&format!("{};", t.stream));
                 }
                 Node::GenericFnStmt {
                     generics,
@@ -952,108 +951,108 @@ impl Generator {
                     vardaic,
                     mangled_name,
                 } => {
-                    let saved_type = self.current_scope_return_type.clone();
-                    self.current_scope_return_type = ret_type.clone();
-                    self.cur_body_type = BodyType::GENERIC;
-                    let is_generic = self.cur_body_type == BodyType::GENERIC;
-                    let mut fix = "\\";
-                    if !is_generic {
-                        fix = "";
-                    }
-                    self.cur_section = Section::FUNC;
-                    let mut stream = String::new();
-                    let instantiator_name = format!("GENERIC_FN_{name}");
-                    let generic_header_path = format!(
-                        "{}/generic_{}.h",
-                        self.buildpath.to_str().unwrap(),
-                        self.outfilename
-                    );
-                    let mut generic_entry = self
-                        .generic_headers
-                        .iter_mut()
-                        .find(|p| p.0 == generic_header_path)
-                        .cloned();
-                    if generic_entry.is_none() {
-                        self.generic_headers.push((generic_header_path.clone(), format!("#pragma once\n\n#include \"/home/dry/Documents/Eggo/jaguar/std/claw.h\"\n")));
-                    }
-                    let mut stream = String::new();
-                    stream.push_str(&format!("\n\n#define {instantiator_name}("));
-                    for (i, g) in generics.clone().iter().enumerate() {
-                        stream.push_str(&format!("{g}"));
-                        if i != generics.len() - 1 {
-                            stream.push_str(",");
-                        }
-                    }
-                    stream.push_str(") ");
-                    let mut fn_ret = ret_type.clone();
-                    let mut fmangled_name = name.clone();
-                    self.change_scope(name.as_str());
-                    self.cur_section = Section::FUNC;
-                    let saved_offset: u16 = self.cur_offset;
-                    self.cur_offset = 1;
-                    if self.is_included {
-                        stream.push_str(&format!("extern inline "));
-                    }
-                    let mut gname = name.clone();
-                    for (i, g) in generics.iter().enumerate() {
-                        gname += &format!("_##{g}");
-                    }
-                    stream.push_str(&format!("{} {gname} (", fn_ret.genimpl()));
-                    let mut index: u16 = 0;
-                    for arg in args.clone() {
-                        stream.push_str(&format!("{} {}", arg.type_hint.to_str(), arg.name));
-                        if index != (args.len() - 1 as usize) as u16 {
-                            stream.push_str(&format!(","));
-                        }
-                        let v = Var::new(arg.name, arg.type_hint, false, None, node.clone().span);
-                        self.var_table.add(v.clone());
-                        self.current_context.add(v);
-                        index += 1;
-                    }
-                    stream.push_str(&format!(") {{{fix}"));
-                    match body.node.clone() {
-                        Node::Program(k) => {
-                            for node in k.clone() {
-                                let s = self.gen_expr(Box::new(node), Type::Any, RefStyle::COPY);
-                                stream += &format!("\n{};{fix}", s.stream);
-                            }
-                        }
-                        _ => {}
-                    }
+                    // let saved_type = self.current_scope_return_type.clone();
+                    // self.current_scope_return_type = ret_type.clone();
+                    // self.cur_body_type = BodyType::GENERIC;
+                    // let is_generic = self.cur_body_type == BodyType::GENERIC;
+                    // let mut fix = "\\";
+                    // if !is_generic {
+                    //     fix = "";
+                    // }
+                    // self.cur_section = Section::FUNC;
+                    // let mut stream = String::new();
+                    // let instantiator_name = format!("GENERIC_FN_{name}");
+                    // let generic_header_path = format!(
+                    //     "{}/generic_{}.h",
+                    //     self.buildpath.to_str().unwrap(),
+                    //     self.outfilename
+                    // );
+                    // let mut generic_entry = self
+                    //     .generic_headers
+                    //     .iter_mut()
+                    //     .find(|p| p.0 == generic_header_path)
+                    //     .cloned();
+                    // if generic_entry.is_none() {
+                    //     self.generic_headers.push((generic_header_path.clone(), format!("#pragma once\n\n#include \"/home/dry/Documents/Eggo/jaguar/std/claw.h\"\n")));
+                    // }
+                    // let mut stream = String::new();
+                    // stream.push_str(&format!("\n\n#define {instantiator_name}("));
+                    // for (i, g) in generics.clone().iter().enumerate() {
+                    //     stream.push_str(&format!("{g}"));
+                    //     if i != generics.len() - 1 {
+                    //         stream.push_str(",");
+                    //     }
+                    // }
+                    // stream.push_str(") ");
+                    // let mut fn_ret = ret_type.clone();
+                    // let mut fmangled_name = name.clone();
+                    // self.change_scope(name.as_str());
+                    // self.cur_section = Section::FUNC;
+                    // let saved_offset: u16 = self.cur_offset;
+                    // self.cur_offset = 1;
+                    // if self.is_included {
+                    //     stream.push_str(&format!("extern inline "));
+                    // }
+                    // let mut gname = name.clone();
+                    // for (i, g) in generics.iter().enumerate() {
+                    //     gname += &format!("_##{g}");
+                    // }
+                    // stream.push_str(&format!("{} {gname} (", fn_ret.genimpl()));
+                    // let mut index: u16 = 0;
+                    // for arg in args.clone() {
+                    //     stream.push_str(&format!("{} {}", arg.type_hint.to_str(), arg.name));
+                    //     if index != (args.len() - 1 as usize) as u16 {
+                    //         stream.push_str(&format!(","));
+                    //     }
+                    //     let v = Var::new(arg.name, arg.type_hint, false, None, node.clone().span);
+                    //     self.var_table.add(v.clone());
+                    //     self.current_context.add(v);
+                    //     index += 1;
+                    // }
+                    // stream.push_str(&format!(") {{{fix}"));
+                    // match body.node.clone() {
+                    //     Node::Program(k) => {
+                    //         for node in k.clone() {
+                    //             let s = self.gen_expr(Box::new(node), Type::Any, RefStyle::COPY);
+                    //             stream += &format!("\n{};{fix}", s.stream);
+                    //         }
+                    //     }
+                    //     _ => {}
+                    // }
 
-                    stream.push_str(&format!("\n}}\n"));
-                    let mut func = Function::new(
-                        name.clone(),
-                        self.current_context.clone(),
-                        fn_ret.clone(),
-                        returns,
-                        body.node,
-                    );
-                    func.gen_name = gname;
-                    func.args = args.clone();
-                    self.gfunc_table
-                        .push(func.to_generic(self.gfromstr(generics.clone())));
-                    self.exit_scope();
-                    self.cur_offset = saved_offset;
-                    self.cur_section = Section::TEXT;
-                    let mut g = vec![];
-                    for s in generics {
-                        g.push(Type::Custom(s));
-                    }
-                    let fgeneric_entry = self
-                        .generic_headers
-                        .iter_mut()
-                        .find(|p| p.0 == generic_header_path);
-                    if fgeneric_entry.is_some() {
-                        fgeneric_entry.unwrap().1.push_str(&stream.clone());
-                    }
-                    self.generics.push(Generic {
-                        name: Type::Custom(name),
-                        generics: g,
-                    });
-                    self.cur_body_type = BodyType::NORMAL;
-                    self.current_scope_return_type = saved_type;
-                    continue;
+                    // stream.push_str(&format!("\n}}\n"));
+                    // let mut func = Function::new(
+                    //     name.clone(),
+                    //     self.current_context.clone(),
+                    //     fn_ret.clone(),
+                    //     returns,
+                    //     body.node,
+                    // );
+                    // func.gen_name = gname;
+                    // func.args = args.clone();
+                    // self.gfunc_table
+                    //     .push(func.to_generic(self.gfromstr(generics.clone())));
+                    // self.exit_scope();
+                    // self.cur_offset = saved_offset;
+                    // self.cur_section = Section::TEXT;
+                    // let mut g = vec![];
+                    // for s in generics {
+                    //     g.push(Type::Custom(s));
+                    // }
+                    // let fgeneric_entry = self
+                    //     .generic_headers
+                    //     .iter_mut()
+                    //     .find(|p| p.0 == generic_header_path);
+                    // if fgeneric_entry.is_some() {
+                    //     fgeneric_entry.unwrap().1.push_str(&stream.clone());
+                    // }
+                    // self.generics.push(Generic {
+                    //     name: Type::Custom(name),
+                    //     generics: g,
+                    // });
+                    // self.cur_body_type = BodyType::NORMAL;
+                    // self.current_scope_return_type = saved_type;
+                    // continue;
                 }
                 Node::BinaryExpr { lhs, opr, rhs } => {}
                 Node::ExTernStmt {
@@ -1357,142 +1356,166 @@ impl Generator {
             }
             Node::GenericFnCall {
                 callee,
-                generics,
+                mut generics,
                 args,
             } => {
-                let is_generic = self.cur_body_type == BodyType::GENERIC;
-                let mut fix = "\\";
-                if !is_generic {
-                    fix = "";
-                }
-                match callee.clone().node {
-                    Node::Token(v, d) => {
-                        let fnc = self.gfunc_table.iter().find(|p| p.get_name() == v).cloned();
-                        if fnc.is_none() {
-                            self.consume(CompileError::new(
-                                format!("Use of undeclared symbol '{v}'"),
-                                None,
-                                callee.clone().span,
-                                ErrLevel::ERROR,
-                            ));
-                            self.flush();
-                            exit(1);
-                        }
-                        let fnm = fnc.unwrap().clone();
-                        let mut new_func = fnm.clone().to_function();
-                        match fnm.ty.clone() {
-                            Type::Generic {
-                                base,
-                                generics: grcs,
-                            } => {
-                                new_func.ty = Type::Generic {
-                                    base: base.clone(),
-                                    generics: generics.clone(),
-                                };
-                                if self
-                                    .generics
-                                    .iter()
-                                    .find(|p| p.name == fnm.ty.clone())
-                                    .is_none()
-                                {
-                                    let mut l = self.get_layout(fnm.ty);
-                                    let mut nl = l.clone().unwrap();
-                                    for f in l.unwrap().feilds.iter().enumerate() {
-                                        if grcs.iter().find(|p| **p == f.1.1.ty).is_some() {
-                                            nl.feilds.get_mut(f.1.0).unwrap().ty =
-                                                generics.get(f.0).unwrap_or(&Type::Any).clone();
-                                        }
-                                    }
-                                    nl.name = new_func.ty.clone();
-                                    self.types.add_type(nl.name.clone(), nl);
-                                }
-                                for (i, arg) in new_func.clone().args.iter().enumerate() {
-                                    if grcs.iter().find(|p| **p == arg.type_hint).is_some() {
-                                        new_func.args.get_mut(i).unwrap().type_hint =
-                                            generics.get(i).unwrap().clone();
-                                    }
-                                }
-                                let mut gname = new_func.get_name();
-                                stream += &format!("\nGENERIC_FN_{v}(");
-                                for t in generics.iter().enumerate() {
-                                    stream += &format!("{}", t.1.to_str());
-                                    gname += &format!("_{}", t.1.to_str());
-                                    if t.0 != generics.len() - 1 {
-                                        stream += &format!(",");
-                                    }
-                                }
-                                new_func.name = gname.clone();
-                                self.func_table.push(new_func.clone());
-                                stream += &format!("){fix}\n");
-                                let sv = self.cur_section.clone();
-                                self.cur_section = Section::FUNC;
-                                let n = Spanned {
-                                    node: Node::FcCall {
-                                        params: args,
-                                        callee: Box::new(Spanned {
-                                            node: Node::Token(gname, false),
-                                            span: callee.span,
-                                        }),
-                                    },
-                                    span: expr.span.clone(),
-                                };
-                                let f = self.gen_func_call(Box::new(n), target_type);
-                                self.generic_stream.push_str(&stream);
-                                stream = f.stream;
-                                self.cur_section = sv;
-                                return ExprResult {
-                                    stream,
-                                    is_ref: false,
-                                    refed_var: None,
-                                    type_hint: Box::new(f.type_hint),
-                                    var: None,
-                                };
-                            }
-                            t => {
-                                println!("{generics:?}");
-                                new_func.ty = t.clone();
-                                let mut gname = new_func.get_name();
-                                stream += &format!("\nGENERIC_FN_{v}(");
-                                for t in generics.iter().enumerate() {
-                                    stream += &format!("{}", t.1.to_str());
-                                    gname += &format!("_{}", t.1.to_str());
-                                    if t.0 != generics.len() - 1 {
-                                        stream += &format!(",");
-                                    }
-                                }
-                                new_func.name = gname.clone();
-                                let idx = 0;
-                                for a in new_func.args.clone() {}
-                                self.func_table.push(new_func.clone());
-                                stream += &format!("){fix}\n");
-                                let sv = self.cur_section.clone();
-                                self.cur_section = Section::FUNC;
-                                let n = Spanned {
-                                    node: Node::FcCall {
-                                        params: args,
-                                        callee: Box::new(Spanned {
-                                            node: Node::Token(gname, false),
-                                            span: callee.span,
-                                        }),
-                                    },
-                                    span: expr.span.clone(),
-                                };
-                                let f = self.gen_func_call(Box::new(n), target_type);
-                                self.generic_stream.push_str(&stream);
-                                stream = f.stream;
-                                self.cur_section = sv;
-                                return ExprResult {
-                                    stream,
-                                    is_ref: false,
-                                    refed_var: None,
-                                    type_hint: Box::new(f.type_hint),
-                                    var: None,
-                                };
-                            }
-                        }
-                    }
-                    _ => {}
-                }
+                // let is_generic = self.cur_body_type == BodyType::GENERIC;
+                // let mut fix = "\\";
+                // if !is_generic {
+                //     fix = "";
+                // }
+                // match callee.clone().node {
+                //     Node::Token(v, d) => {
+                //         let fnc = self.gfunc_table.iter().find(|p| p.get_name() == v).cloned();
+                //         if fnc.is_none() {
+                //             self.consume(CompileError::new(
+                //                 format!("Use of undeclared symbol '{v}'"),
+                //                 None,
+                //                 callee.clone().span,
+                //                 ErrLevel::ERROR,
+                //             ));
+                //             self.flush();
+                //             exit(1);
+                //         }
+                //         let fnm = fnc.unwrap().clone();
+                //         let mut new_func = fnm.clone().to_function();
+                //         let mut t = self.get_generic_type(&new_func.ty);
+                //         match new_func.ty.clone() {
+                //             Type::Generic { base, generics: g } => {
+                //                 new_func.ty = Type::Generic {
+                //                     base,
+                //                     generics: generics.clone(),
+                //                 }
+                //             }
+                //             Type::BundledType { bundle, ty } => match *ty.clone() {
+                //                 Type::Generic { base, generics } => {
+                //                     new_func.ty = Type::Generic {
+                //                         base: Box::new(Type::BundledType { bundle, ty }),
+                //                         generics,
+                //                     }
+                //                 }
+                //                 _ => {}
+                //             },
+                //             _ => {}
+                //         }
+                //         match fnm.ty.clone() {
+                //             Type::Generic {
+                //                 base,
+                //                 generics: grcs,
+                //             } => {
+                //                 new_func.ty = Type::Generic {
+                //                     base: base.clone(),
+                //                     generics: generics.clone(),
+                //                 };
+                //                 if self
+                //                     .generics
+                //                     .iter()
+                //                     .find(|p| p.name == fnm.ty.clone())
+                //                     .is_none()
+                //                 {
+                //                     let mut l = self.get_layout(fnm.ty);
+                //                     let mut nl = l.clone().unwrap();
+                //                     for f in l.unwrap().feilds.iter().enumerate() {
+                //                         if grcs.iter().find(|p| **p == f.1.1.ty).is_some() {
+                //                             nl.feilds.get_mut(f.1.0).unwrap().ty =
+                //                                 generics.get(f.0).unwrap_or(&Type::Any).clone();
+                //                         }
+                //                     }
+                //                     nl.name = new_func.ty.clone();
+                //                     self.types.add_type(nl.name.clone(), nl);
+                //                 }
+                //                 for (i, arg) in new_func.clone().args.iter().enumerate() {
+                //                     if grcs.iter().find(|p| **p == arg.type_hint).is_some() {
+                //                         new_func.args.get_mut(i).unwrap().type_hint =
+                //                             generics.get(i).unwrap().clone();
+                //                     }
+                //                 }
+                //                 let mut gname = new_func.get_name();
+                //                 stream += &format!("\nGENERIC_FN_{v}(");
+                //                 for t in generics.iter().enumerate() {
+                //                     stream += &format!("{}", t.1.to_str());
+                //                     gname += &format!("_{}", t.1.to_str());
+                //                     if t.0 != generics.len() - 1 {
+                //                         stream += &format!(",");
+                //                     }
+                //                 }
+                //                 new_func.name = gname.clone();
+                //                 self.func_table.push(new_func.clone());
+                //                 stream += &format!("){fix}\n");
+                //                 let sv = self.cur_section.clone();
+                //                 self.cur_section = Section::FUNC;
+                //                 let n = Spanned {
+                //                     node: Node::FcCall {
+                //                         params: args,
+                //                         callee: Box::new(Spanned {
+                //                             node: Node::Token(gname, false),
+                //                             span: callee.span,
+                //                         }),
+                //                     },
+                //                     span: expr.span.clone(),
+                //                 };
+                //                 let f = self.gen_func_call(Box::new(n), target_type);
+                //                 self.generic_stream.push_str(&stream);
+                //                 stream = f.stream;
+                //                 self.cur_section = sv;
+                //                 return ExprResult {
+                //                     stream,
+                //                     is_ref: false,
+                //                     refed_var: None,
+                //                     type_hint: Box::new(f.type_hint),
+                //                     var: None,
+                //                 };
+                //             }
+                //             t => {
+                //                 // let mut ty = self.get_generic_type(&t);
+                //                 // match ty {
+                //                 //     Some(tg) => new_func.ty = tg,
+                //                 //     None => {}
+                //                 // }
+                //                 // new_func.ty = t.clone();
+                //                 let mut gname = new_func.get_name();
+                //                 stream += &format!("\nGENERIC_FN_{v}(");
+                //                 for t in generics.iter().enumerate() {
+                //                     stream += &format!("{}", t.1.to_str());
+                //                     gname += &format!("_{}", t.1.to_str());
+                //                     if t.0 != generics.len() - 1 {
+                //                         stream += &format!(",");
+                //                     }
+                //                 }
+                //                 new_func.name = gname.clone();
+                //                 let idx = 0;
+                //                 for a in new_func.args.clone() {}
+                //                 println!(">> ({:?})", new_func.ty);
+                //                 self.func_table.push(new_func.clone());
+                //                 stream += &format!("){fix}\n");
+                //                 let sv = self.cur_section.clone();
+                //                 self.cur_section = Section::FUNC;
+                //                 let n = Spanned {
+                //                     node: Node::FcCall {
+                //                         params: args,
+                //                         callee: Box::new(Spanned {
+                //                             node: Node::Token(gname, false),
+                //                             span: callee.span,
+                //                         }),
+                //                     },
+                //                     span: expr.span.clone(),
+                //                 };
+                //                 let f = self.gen_func_call(Box::new(n), target_type);
+                //                 self.generic_stream.push_str(&stream);
+                //                 stream = f.stream;
+                //                 self.cur_section = sv;
+                //                 return ExprResult {
+                //                     stream,
+                //                     is_ref: false,
+                //                     refed_var: None,
+                //                     type_hint: Box::new(f.type_hint),
+                //                     var: None,
+                //                 };
+                //             }
+                //         }
+                //     }
+                //     _ => {}
+                // }
             }
             Node::ListInit { content } => {
                 let is_generic = self.cur_body_type == BodyType::GENERIC;
@@ -1663,6 +1686,20 @@ impl Generator {
                         if g.unwrap().generics.contains(&field.1.ty) {
                             field.1.ty = generics.get(gidx).unwrap().clone();
                             gidx += 1;
+                        }
+                    }
+                    for meth in &mut new_layout.methods {
+                        let mut idx = 0;
+                        for arg in &mut meth.args {
+                            match arg.type_hint.clone() {
+                                Type::Generic { base, generics: g } => {}
+                                _ => {}
+                            }
+                            if g.unwrap().generics.contains(&arg.type_hint) {
+                                println!("Here");
+                                arg.type_hint = generics.get(idx).unwrap().clone();
+                                idx += 1;
+                            }
                         }
                     }
                     self.types.add_type(target_type.clone(), new_layout); // adding new layout to type registary
@@ -2047,24 +2084,24 @@ impl Generator {
                         args,
                     } = field.node.clone()
                     {
-                        let save_function_table = self.func_table.clone();
-                        let save_gfunction_table = self.gfunc_table.clone();
-                        let save_types = self.types.clone();
-                        self.func_table = bndl.unwrap().functions.clone();
-                        self.gfunc_table = bndl.unwrap().gfunctions.clone();
-                        self.types = bndl.unwrap().types.clone();
-                        let res = self.gen_expr(field, target_type, RefStyle::COPY);
-                        self.func_table = save_function_table;
-                        self.gfunc_table = save_gfunction_table;
-                        self.types = save_types;
-                        stream += format!("\n\t{}", res.stream).as_str();
-                        return ExprResult {
-                            stream,
-                            is_ref: false,
-                            refed_var: None,
-                            type_hint: res.type_hint.clone(),
-                            var: None,
-                        };
+                        //     let save_function_table = self.func_table.clone();
+                        //     let save_gfunction_table = self.gfunc_table.clone();
+                        //     let save_types = self.types.clone();
+                        //     self.func_table = bndl.unwrap().functions.clone();
+                        //     self.gfunc_table = bndl.unwrap().gfunctions.clone();
+                        //     self.types = bndl.unwrap().types.clone();
+                        //     let res = self.gen_expr(field, target_type, RefStyle::COPY);
+                        //     self.func_table = save_function_table;
+                        //     self.gfunc_table = save_gfunction_table;
+                        //     self.types = save_types;
+                        //     stream += format!("\n\t{}", res.stream).as_str();
+                        //     return ExprResult {
+                        //         stream,
+                        //         is_ref: false,
+                        //         refed_var: None,
+                        //         type_hint: res.type_hint.clone(),
+                        //         var: None,
+                        //     };
                     } else {
                         let out = self.gen_expr(field, target_type, RefStyle::COPY);
                         stream += &out.stream;
@@ -2610,12 +2647,17 @@ impl Generator {
                 }
                 let out = self.gen_expr(base.clone(), target_type.clone(), RefStyle::COPY);
                 let mut layout = self.get_layout(*out.clone().type_hint).clone();
+                println!("<< {:?}", base);
                 let mut base_type = Type::NoType;
                 if layout.is_none() {
+                    // let t = self.get_generic_type(&*out.type_hint);
+                    // if t.is_some() {
                     if let Type::Generic { base, generics } = *out.type_hint.clone() {
                         layout = self.get_layout(*base.clone());
-                        base_type = *base;
+                        base_type = *base.clone();
+                        println!(">> {base:?}");
                     }
+                    // }
                 } else {
                     base_type = self
                         .lookup_variable(&out.var.clone().unwrap())
@@ -2626,9 +2668,11 @@ impl Generator {
                 let mut method = self.get_field_item(layout.unwrap(), &field, callee.clone().span);
                 let mut ig = false;
                 let mut gnrcs = vec![];
-
-                if let Type::Generic { base, generics } = base_type.clone() {
-                    method = self.create_concrete_from_generic(method.clone(), generics, *base);
+                if let Some(Type::Generic { base, generics }) =
+                    self.get_generic_type(&base_type.clone())
+                {
+                    method =
+                        self.create_concrete_from_generic(method.clone(), generics.clone(), *base);
                 } else if let Some(Generic { name, generics }) = self
                     .generics
                     .clone()
@@ -2642,7 +2686,6 @@ impl Generator {
                     ig = true;
                     gnrcs = generics.clone();
                 }
-                println!("\n\n{method:#?}\n{base_type:#?}");
 
                 fargs = method.clone().args;
                 let mut modifier = "";
@@ -2791,7 +2834,6 @@ impl Generator {
                     self.flush();
                     exit(100);
                 }
-                // println!("here ({fcname}, {:?})", func.unwrap().ty.clone());
                 fargs = func.unwrap().args.clone();
                 fret_type = func.unwrap().ty.clone();
                 variadic = func.unwrap().variadic;
@@ -3372,6 +3414,14 @@ impl Generator {
 
     fn type_replace(&self, ty: Type, t: &Type) -> Type {
         t.clone()
+    }
+
+    fn get_generic_type(&mut self, type_hint: &Type) -> Option<Type> {
+        match type_hint {
+            Type::Generic { base, generics } => Some(type_hint.clone()),
+            Type::BundledType { bundle, ty } => self.get_generic_type(ty),
+            _ => None,
+        }
     }
 }
 

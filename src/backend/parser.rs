@@ -399,47 +399,50 @@ impl Parser {
                 span: Span { start, end },
             });
         }
-        self.expect_separator("(");
         let mut args = Vec::new();
         let mut vardaic: bool = false;
-        while self.peek().unwrap().clone().kind != TokenType::Separator(')'.to_string()) {
-            let mut type_hint = Type::NoType;
-            let arg_name: String = self.expect_identifier().unwrap();
-            if arg_name == "self" {
-                args.push(FunctionArg {
-                    name: arg_name.clone(),
-                    type_hint,
-                    is_ref: true,
-                });
-                if self.next().kind == TokenType::Separator(",".to_owned()) {
+        if self.next().kind == TokenType::Separator("(".to_owned()) {
+            self.expect_separator("(");
+            while self.peek().unwrap().clone().kind != TokenType::Separator(')'.to_string()) {
+                let mut type_hint = Type::NoType;
+                let arg_name: String = self.expect_identifier().unwrap();
+                if arg_name == "self" {
+                    args.push(FunctionArg {
+                        name: arg_name.clone(),
+                        type_hint,
+                        is_ref: true,
+                    });
+                    if self.next().kind == TokenType::Separator(",".to_owned()) {
+                        self.advance();
+                    }
+                    continue;
+                }
+                self.expect_separator(":");
+                let mut is_ref = false;
+                if self.peek().unwrap().clone().kind == TokenType::Operator('%'.to_string()) {
+                    is_ref = true;
                     self.advance();
                 }
-                continue;
-            }
-            self.expect_separator(":");
-            let mut is_ref = false;
-            if self.peek().unwrap().clone().kind == TokenType::Operator('%'.to_string()) {
-                is_ref = true;
+                type_hint = self.parse_type().unwrap();
                 self.advance();
-            }
-            type_hint = self.parse_type().unwrap();
-            self.advance();
-            let arg = FunctionArg {
-                name: arg_name,
-                type_hint,
-                is_ref,
-            };
-            args.push(arg);
-            if self.peek().unwrap().clone().kind == TokenType::Separator(",".to_string()) {
-                self.expect_separator(",");
-                if self.peek().unwrap().clone().kind == TokenType::Vardaic {
-                    vardaic = true;
-                    self.advance();
-                    break;
+                let arg = FunctionArg {
+                    name: arg_name,
+                    type_hint,
+                    is_ref,
+                };
+                args.push(arg);
+                if self.peek().unwrap().clone().kind == TokenType::Separator(",".to_string()) {
+                    self.expect_separator(",");
+                    if self.peek().unwrap().clone().kind == TokenType::Vardaic {
+                        vardaic = true;
+                        self.advance();
+                        break;
+                    }
                 }
             }
+            self.expect_separator(")");
         }
-        self.expect_separator(")");
+
         let mut ret_type = Type::NoType;
         if self.peek().unwrap().clone().kind == TokenType::Separator(":".to_owned()) {
             self.expect_separator(":");

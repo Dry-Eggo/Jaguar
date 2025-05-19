@@ -1,6 +1,6 @@
 pub(crate) mod backend;
 pub(crate) mod frontend;
-use std::process::exit;
+use std::process::{Command, exit};
 
 use backend::codegen::Generator;
 use backend::parser;
@@ -14,6 +14,7 @@ use lexer::{TokenType, Tokenizer};
     author = "Dry",
     about = "Jaguar Compiler"
 )]
+#[derive(Debug, Clone)]
 pub struct Cli {
     #[arg(short, long)]
     pub release: bool,
@@ -62,7 +63,7 @@ fn main() {
         program => {
             let mut cgen = Generator::new(
                 program,
-                &format!("{b}/{}", cli.output.unwrap()),
+                &format!("{b}/{}", cli.output.clone().unwrap()),
                 input,
                 false,
                 std::path::Path::new(cli.source.clone().as_str())
@@ -80,6 +81,14 @@ fn main() {
             cgen.generate(cgen.source.clone());
             // exit(1);
             cgen.rest();
+            let mut gcc = Command::new("cc")
+                .arg(cgen.outfilename)
+                .arg("-o")
+                .arg(cli.output.unwrap().to_string().clone())
+                .arg("/home/dry/Documents/Eggo/jaguar/std/claw.o")
+                .arg("/home/dry/Documents/Eggo/jaguar/std/stdtixie.o")
+                .arg("-no-pie")
+                .status();
         }
     };
 }

@@ -1,0 +1,7 @@
+extern jprintln(fmt: str, ...): void;
+
+fn main {
+	if 3 == 3 {
+		jprintln("Bonga");
+	}
+}
