@@ -2,20 +2,36 @@ extern malloc(bytes: u64): ptr<void>;
 extern realloc(pointer: ptr<void>,bytes: u64): ptr<void>;
 
 struct Allocator {
-	data: ptr<ptr<void>>,
-	topi: u64,
-	top: ptr<void>,
-	bottom: ptr<void>
-	cap: u64,
+	start: ptr<void>,
+	current: ptr<void>
+	capacity: u64,
 
 	fn allocate(self, bytes: u64): ptr<void> {
-		if self.topi == self.cap {
-			self.grow();
+		let new_current := (self.current as u64) + bytes;
+		if new_current > ((self.start as u64) + self.capacity) {
+			self.grow(bytes);
+			new_current = (self.current as u64) + bytes;
 		}
+
+		let allocated_ptr := self.current;
+		self.current = new_current as ptr<void>;
+		ret allocated_ptr;
 	}
 
-	fn grow(self) {
-		realloc(self.data as ptr<void>, self.cap * 2);
-		self.cap = self.cap * 2;
+	fn grow(self, bytes: u64) {
+		let newcap := self.capacity * 2;
+		if newcap < self.capacity + bytes {
+			newcap = self.capacity + bytes;
+		}
+		let new_start := realloc(self.start, newcap);
+		let offset := (self.current as u64) - (self.start as u64);
+		self.start = new_start;
+		self.current = (self.start as u64 + offset) as ptr<void>;
+		self.capacity = newcap;
 	}
+}
+
+fn new_allocator(capacity: u64): Allocator {
+	let p := malloc(capacity);
+	ret {start: p, current: p,  capacity: capacity};
 }

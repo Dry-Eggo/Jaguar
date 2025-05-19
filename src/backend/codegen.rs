@@ -1280,13 +1280,18 @@ impl Generator {
                         RefStyle::DEREF => {
                             stream += format!("{}", val.name).as_str();
                             if !val.is_ref {
-                                self.consume(CompileError::new(
-                                    format!("Cannot dereference value at '{var}'. Not a reference"),
-                                    None,
-                                    expr.clone().span,
-                                    ErrLevel::ERROR,
-                                ));
-                                self.flush();
+                                if let Type::PTR(ref v) = val.type_hint {
+                                } else {
+                                    self.consume(CompileError::new(
+                                        format!(
+                                            "Cannot dereference value at '{var}'. Not a reference"
+                                        ),
+                                        None,
+                                        expr.clone().span,
+                                        ErrLevel::ERROR,
+                                    ));
+                                    self.flush();
+                                }
                             }
                             let mut type_hint = val.type_hint.clone();
 
@@ -1393,7 +1398,7 @@ impl Generator {
                     ));
                     self.flush();
                 }
-                stream += &format!("{fix}return {}", out.stream);
+                stream += &format!("return ({}) {}", out.type_hint.to_str(), out.stream);
                 return ExprResult {
                     stream,
                     is_ref: false,
@@ -1726,34 +1731,10 @@ impl Generator {
                 let plugin_name = name.clone();
                 let plugin_type = ret_type.clone();
                 let plugin_val = ret_val.clone();
-                let is_generic = {
-                    let v = self.cur_body_type == BodyType::GENERIC;
-                    v
-                };
-                let mut fix = "\\";
-                if !is_generic {
-                    fix = "";
-                }
                 let mut self_type = Type::NoType;
                 let mut oplugin_name = String::new();
                 oplugin_name += &targ_type.to_str();
-                self_type = if is_generic {
-                    let v = self.generics.iter().find(|p| p.name == targ_type);
-                    if v.is_some() {
-                        for t in v.unwrap().generics.iter().enumerate() {
-                            oplugin_name += &format!("_##{}", t.1.to_str());
-                            if t.0 == v.unwrap().generics.len() - 1 {
-                                oplugin_name += "##";
-                            }
-                        }
-                    }
-                    Type::Generic {
-                        base: Box::new(targ_type.clone()),
-                        generics: v.unwrap().generics.clone(),
-                    }
-                } else {
-                    targ_type.clone()
-                };
+                self_type = targ_type.clone();
                 oplugin_name += &format!("_{}", plugin_name);
                 self.change_scope(name.as_str());
                 self.cur_section = Section::FUNC;
@@ -1797,7 +1778,7 @@ impl Generator {
                         stream.push_str(",");
                     }
                 }
-                stream.push_str(&format!(") {{ {fix}\n"));
+                stream.push_str(&format!(") {{\n"));
                 match body.clone().node.clone() {
                     Node::Program(k) => {
                         for n in k.clone().iter().enumerate() {
@@ -1812,7 +1793,7 @@ impl Generator {
                     _ => {}
                 }
 
-                stream.push_str(&format!("}}{fix}"));
+                stream.push_str(&format!("}}"));
                 let mut plugin = Function::new(
                     plugin_name.clone(),
                     self.current_context.clone(),
@@ -2774,6 +2755,8 @@ impl Generator {
             (Type::PTR(_v), Type::PTR(_f)) => true,
             (Type::STR, Type::PTR(_v)) => true,
             (Type::PTR(_v), Type::STR) => true,
+            (v, Type::PTR(_v)) => is_int(v),
+            (Type::PTR(_v), v) => is_int(v),
             (int1, int2) => is_int(int1.clone()) && is_int(int2.clone()) || int1 == int2,
         }
     }
@@ -2904,8 +2887,8 @@ fn is_builtin(clone: Type) -> bool {
 
 fn is_int(target_type: Type) -> bool {
     use crate::backend::ttype::Type::*;
-    matches!(
-        target_type,
-        INT | U8 | U64 | U32 | U16 | I8 | I16 | I32 | I64 | CHAR
-    )
+    match target_type {
+        INT | U8 | U64 | U32 | U16 | I8 | I16 | I32 | I64 | CHAR => true,
+        _ => false,
+    }
 }

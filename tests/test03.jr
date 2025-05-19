@@ -1,6 +1,9 @@
-
+extern jprintln(fmt: str, ...): void;
 bundle "lib/mem.jr" as std;
 
 fn main {
-	
+	let allocator := std::new_allocator(64);
+	let test := allocator.allocate(8) as ptr<int>;
+	*test = 5;
+	jprintln("{d}", *test);
 }
