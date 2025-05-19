@@ -1,6 +1,10 @@
 pub(crate) mod backend;
 pub(crate) mod frontend;
-use std::process::{Command, exit};
+use std::{
+    hash::BuildHasherDefault,
+    net::ToSocketAddrs,
+    process::{Command, CommandArgs, exit},
+};
 
 use backend::codegen::Generator;
 use backend::parser;
@@ -24,6 +28,9 @@ pub struct Cli {
 
     #[arg(short, long, value_name = "OUTPUT")]
     pub output: Option<String>,
+
+    #[arg(long, help = "Keep the C artifacts")]
+    pub keepc: bool,
 }
 
 fn initbuilddir() -> String {
@@ -88,7 +95,11 @@ fn main() {
                 .arg("/home/dry/Documents/Eggo/jaguar/std/claw.o")
                 .arg("/home/dry/Documents/Eggo/jaguar/std/stdtixie.o")
                 .arg("-no-pie")
+                .arg("-w")
                 .status();
+            if !cli.keepc {
+                std::fs::remove_dir_all(cgen.buildpath.to_str().unwrap()).unwrap();
+            }
         }
     };
 }

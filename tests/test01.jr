@@ -1,7 +1,8 @@
+/* Expose External print function */
 extern jprintln(fmt: str, ...): void;
 
+
+/* main entry point */
 fn main {
-	if 3 == 3 {
-		jprintln("Bonga");
-	}
+	jprintln("Hello World");
 }

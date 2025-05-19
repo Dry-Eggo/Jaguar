@@ -75,7 +75,7 @@ pub enum Node {
     IfStmt {
         cond: Box<Spanned<Node>>,
         body: Box<Spanned<Node>>,
-        elseifs: Option<Box<Spanned<Node>>>,
+        elseifs: Option<Vec<Spanned<Node>>>,
         elsestmt: Option<Box<Spanned<Node>>>,
     },
     LetStmt {
@@ -157,6 +157,10 @@ pub enum Node {
         callee: Box<Spanned<Node>>,
         generics: Vec<Type>,
         args: Vec<Spanned<Node>>,
+    },
+    WhileStmt {
+        cond: Box<Spanned<Node>>,
+        body: Box<Spanned<Node>>,
     },
 }
 #[derive(Debug, Clone)]
@@ -314,91 +318,7 @@ impl Parser {
             let name = self.expect_identifier();
             name.unwrap().clone()
         };
-        if self.next().kind == TokenType::Separator("[".to_owned()) {
-            self.expect_separator("[");
-            let mut generics = vec![];
-            while self.next().kind != TokenType::Separator("]".to_owned()) {
-                generics.push(self.expect_identifier().unwrap());
-                if self.next().kind == TokenType::Separator(",".to_owned()) {
-                    self.advance();
-                }
-            }
-            self.expect_separator("]");
-            self.expect_separator("(");
-            let mut args = Vec::new();
-            let mut vardaic: bool = false;
-            while self.peek().unwrap().clone().kind != TokenType::Separator(')'.to_string()) {
-                let mut type_hint = Type::NoType;
-                let arg_name: String = self.expect_identifier().unwrap();
-                if arg_name == "self" {
-                    args.push(FunctionArg {
-                        name: arg_name.clone(),
-                        type_hint,
-                        is_ref: true,
-                    });
-                    if self.next().kind == TokenType::Separator(",".to_owned()) {
-                        self.advance();
-                    }
-                    continue;
-                }
-                self.expect_separator(":");
-                let mut is_ref = false;
-                if self.peek().unwrap().clone().kind == TokenType::Operator('%'.to_string()) {
-                    is_ref = true;
-                    self.advance();
-                }
-                type_hint = self.parse_type().unwrap();
-                self.advance();
-                let arg = FunctionArg {
-                    name: arg_name,
-                    type_hint,
-                    is_ref,
-                };
-                args.push(arg);
-                if self.peek().unwrap().clone().kind == TokenType::Separator(",".to_string()) {
-                    self.expect_separator(",");
-                    if self.peek().unwrap().clone().kind == TokenType::Vardaic {
-                        vardaic = true;
-                        self.advance();
-                        break;
-                    }
-                }
-            }
-            self.expect_separator(")");
-            let mut ret_type = Type::NoType;
-            if self.peek().unwrap().clone().kind == TokenType::Separator(":".to_owned()) {
-                self.expect_separator(":");
-                ret_type = self.parse_type().unwrap();
-                self.advance();
-            }
-            self.expect_separator("{");
 
-            let body = self.parse_body(false, false);
-            let mut has_ret = false;
-            let mut ret_val = None;
-            if self.peek().unwrap().clone().kind == TokenType::Keyword("ret".to_string()) {
-                self.expect_keyword(&"ret")?;
-                has_ret = true;
-                ret_val = Some(self.parse_logic_or());
-                self.expect_separator(";");
-            }
-            self.expect_separator("}");
-            let end = self.tokens.get(self.current - 1).cloned().unwrap().span.end;
-            return Ok(Spanned {
-                node: Node::GenericFnStmt {
-                    generics,
-                    name: fname.clone(),
-                    returns: has_ret,
-                    ret_type,
-                    body: Box::new(body),
-                    return_val: Box::new(ret_val),
-                    args,
-                    vardaic,
-                    mangled_name: fname.clone(),
-                },
-                span: Span { start, end },
-            });
-        }
         let mut args = Vec::new();
         let mut vardaic: bool = false;
         if self.next().kind == TokenType::Separator("(".to_owned()) {
@@ -536,6 +456,11 @@ impl Parser {
                 TokenType::Keyword(k) if k == "for" => {
                     let forstmt = self.parse_forstmt();
                     stmts.push(forstmt);
+                    continue;
+                }
+                TokenType::Keyword(k) if k == "while" => {
+                    let while_stmt = self.parse_while();
+                    stmts.push(while_stmt);
                     continue;
                 }
                 TokenType::Keyword(k) if k == "fn" => {
@@ -1426,67 +1351,7 @@ impl Parser {
         let start = self.peek().unwrap().clone().span.start;
         self.advance(); // skip 'struct'
         let name = self.expect_identifier().unwrap().clone();
-        if self.next().kind == TokenType::Separator("[".to_owned()) {
-            let mut generics = vec![];
-            self.expect_separator("[");
-            while self.next().kind != TokenType::Separator("]".to_owned()) {
-                let t = self.expect_identifier().unwrap();
-                generics.push(t);
-                if self.next().kind == TokenType::Separator(",".to_owned()) {
-                    self.expect_separator(",");
-                }
-            }
-            self.expect_separator("]");
-            self.expect_separator("{");
-            let mut fields = Vec::new();
-            let mut meths = Vec::new();
-            while self.peek().unwrap().clone().kind != TokenType::Separator('}'.to_string()) {
-                if self.next().kind == TokenType::Keyword("fn".to_owned()) {
-                    let method = self.parse_func();
-                    meths.push(method);
-                    continue;
-                }
-                let fe_start = self.peek().unwrap().clone().span.start;
-                let feild_name = self.expect_identifier().unwrap();
-                self.expect_separator(":");
-                let fstart = self.peek().unwrap().clone().span.start;
-                let feild_type = self.parse_type();
-                let fend = self.tokens.get(self.current - 1).unwrap().clone().span.end;
-                self.advance();
-                if self.peek().unwrap().clone().kind == TokenType::Separator(','.to_string()) {
-                    self.expect_separator(",");
-                } else if matches!(self.peek().unwrap().clone().kind, TokenType::Separator(v) if v == "}")
-                {
-                    self.error(
-                        format!("Missing comma?"),
-                        &self.peek().unwrap().clone().span,
-                    );
-                }
-                let fe_end = self.tokens.get(self.current - 1).unwrap().clone().span.end;
-                fields.push(Spanned {
-                    node: Node::Feilds {
-                        name: feild_name,
-                        type_hint: feild_type.unwrap(),
-                    },
-                    span: Span {
-                        start: fe_start,
-                        end: fe_end,
-                    },
-                });
-            }
-            self.expect_separator("}");
-            let node: Node = Node::GenericStructStmt {
-                name,
-                generics,
-                fields,
-                meths,
-            };
-            let end = self.tokens.get(self.current - 1).unwrap().clone().span.end;
-            return Spanned {
-                node,
-                span: Span { start, end },
-            };
-        }
+
         self.expect_separator("{");
         let mut fields = Vec::new();
         let mut meths = Vec::new();
@@ -1686,13 +1551,29 @@ impl Parser {
         self.expect_separator("{");
         let body = self.parse_body(true, false);
         self.expect_separator("}");
+        let mut branches = vec![];
+        if self.next().kind == TokenType::Keyword("else".to_owned()) {
+            while self.next().kind == TokenType::Keyword("else".to_owned())
+                && self.get(1).unwrap().kind == TokenType::Keyword("if".to_owned())
+            {
+                let _ = self.expect_keyword("else");
+                branches.push(self.parse_ifstmt());
+            }
+        }
+        let mut else_body = None;
+        if self.next().kind == TokenType::Keyword("else".to_owned()) {
+            self.advance();
+            self.expect_separator("{");
+            else_body = Some(Box::new(self.parse_body(false, false)));
+            self.expect_separator("}");
+        }
         let end = self.before().span.end;
         Spanned {
             node: Node::IfStmt {
                 cond: Box::new(cond),
                 body: Box::new(body),
-                elseifs: None,
-                elsestmt: None,
+                elseifs: Some(branches),
+                elsestmt: else_body,
             },
             span: Span { start, end },
         }
@@ -1742,6 +1623,23 @@ impl Parser {
         let end = self.before().span.end;
         Spanned {
             node: Node::UnpackStmt { alias, symbols },
+            span: Span { start, end },
+        }
+    }
+
+    fn parse_while(&mut self) -> Spanned<Node> {
+        let start = self.next().span.start;
+        self.advance();
+        let cond = self.parse_logic_or();
+        self.expect_separator("{");
+        let body = self.parse_body(false, true);
+        self.expect_separator("}");
+        let end = self.next().span.end;
+        Spanned {
+            node: Node::WhileStmt {
+                cond: Box::new(cond),
+                body: Box::new(body),
+            },
             span: Span { start, end },
         }
     }

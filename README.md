@@ -97,25 +97,24 @@ fn main() {
 
 ---
 
-## Blocks
+## Structs
 
-Blocks are the core user-defined types in Jaguar — like structs but better.
-They can hold both data and methods.
+Structs are the core user-defined types in Jaguar. They can hold both data and methods.
 
 ```
 
-block Person {
+struct Person {
   name: str,
   age: int,
 }
 
 ```
 
-Methods inside a block:
+Methods inside a struct:
 
 ```
 
-block Person {
+struct Person {
   name: str,
   age: int,
 
@@ -154,33 +153,6 @@ This makes it easy to integrate Jaguar with existing C codebases — useful for 
 
 ---
 
-## Generics (Partially Implemented)
-
-Jaguar includes early-stage generics, allowing parametric polymorphism in blocks and functions.
-
-```
-
-block Option[T] {
-  value: T,
-
-  fn unwrap(self): T {
-    // For demo purposes
-    ret self.value;
-  }
-}
-
-fn newOption[T](value: T): Option<T> {
-  ret { value: value };
-}
-
-fn main() {
-  let foo: Option<int> = newOption<int>(3);
-  jprintln("foo: {d}", foo.unwrap());
-}
-```
-
----
-
 ## Control Flow (Partially implemented)
 
 ### If Statements
@@ -194,7 +166,7 @@ fn main() {
 
 ``` 
 
-> Note: Else and Else-if(Elif) statements are not supported yet
+> Note: Else and Else-if statements are not supported yet
 
 ### For Loops
 

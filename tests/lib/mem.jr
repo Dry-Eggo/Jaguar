@@ -1,0 +1,21 @@
+extern malloc(bytes: u64): ptr<void>;
+extern realloc(pointer: ptr<void>,bytes: u64): ptr<void>;
+
+struct Allocator {
+	data: ptr<ptr<void>>,
+	topi: u64,
+	top: ptr<void>,
+	bottom: ptr<void>
+	cap: u64,
+
+	fn allocate(self, bytes: u64): ptr<void> {
+		if self.topi == self.cap {
+			self.grow();
+		}
+	}
+
+	fn grow(self) {
+		realloc(self.data as ptr<void>, self.cap * 2);
+		self.cap = self.cap * 2;
+	}
+}

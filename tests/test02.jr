@@ -1,0 +1,9 @@
+extern jprintln(fmt: str, ...): void;
+
+fn main {
+	let x : u64 = 10;
+	while x > 1 {
+		jprintln("Hello World {d}", x);
+		x = x - 1;
+	}
+}
