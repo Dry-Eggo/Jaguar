@@ -1,19 +1,19 @@
 use std::{any::Any, collections::HashMap};
 
 use super::{
-    codegen::BlockLayout, context::Context, function::Function, parser::Node, ttype::Type,
+    codegen::StructLayout, context::Context, function::Function, parser::Node, ttype::Type,
 };
 #[derive(Debug, Clone)]
 pub struct TTable {
-    content: HashMap<Type, BlockLayout>,
+    pub(crate) content: HashMap<Type, StructLayout>,
 }
 
 impl TTable {
     pub fn new() -> Self {
-        let mut content: HashMap<Type, BlockLayout> = HashMap::new();
+        let mut content: HashMap<Type, StructLayout> = HashMap::new();
         content.insert(
             Type::INT,
-            BlockLayout {
+            StructLayout {
                 name: Type::INT,
                 feilds: HashMap::new(),
                 methods: vec![],
@@ -22,7 +22,7 @@ impl TTable {
         );
         content.insert(
             Type::STR,
-            BlockLayout {
+            StructLayout {
                 name: Type::STR,
                 feilds: HashMap::new(),
                 methods: vec![],
@@ -31,7 +31,7 @@ impl TTable {
         );
         content.insert(
             Type::CHAR,
-            BlockLayout {
+            StructLayout {
                 name: Type::CHAR,
                 feilds: HashMap::new(),
                 methods: vec![
@@ -55,7 +55,7 @@ impl TTable {
         );
         content.insert(
             Type::U8,
-            BlockLayout {
+            StructLayout {
                 name: Type::U8,
                 feilds: HashMap::new(),
                 methods: vec![],
@@ -64,7 +64,7 @@ impl TTable {
         );
         content.insert(
             Type::U16,
-            BlockLayout {
+            StructLayout {
                 name: Type::U16,
                 feilds: HashMap::new(),
                 methods: vec![],
@@ -73,7 +73,7 @@ impl TTable {
         );
         content.insert(
             Type::U32,
-            BlockLayout {
+            StructLayout {
                 name: Type::U32,
                 feilds: HashMap::new(),
                 methods: vec![],
@@ -82,7 +82,7 @@ impl TTable {
         );
         content.insert(
             Type::U64,
-            BlockLayout {
+            StructLayout {
                 name: Type::U64,
                 feilds: HashMap::new(),
                 methods: vec![],
@@ -91,7 +91,7 @@ impl TTable {
         );
         content.insert(
             Type::I8,
-            BlockLayout {
+            StructLayout {
                 name: Type::U8,
                 feilds: HashMap::new(),
                 methods: vec![],
@@ -100,7 +100,7 @@ impl TTable {
         );
         content.insert(
             Type::I16,
-            BlockLayout {
+            StructLayout {
                 name: Type::U16,
                 feilds: HashMap::new(),
                 methods: vec![],
@@ -109,7 +109,7 @@ impl TTable {
         );
         content.insert(
             Type::I32,
-            BlockLayout {
+            StructLayout {
                 name: Type::U32,
                 feilds: HashMap::new(),
                 methods: vec![],
@@ -118,7 +118,7 @@ impl TTable {
         );
         content.insert(
             Type::I64,
-            BlockLayout {
+            StructLayout {
                 name: Type::U64,
                 feilds: HashMap::new(),
                 methods: vec![],
@@ -127,7 +127,7 @@ impl TTable {
         );
         content.insert(
             Type::NoType,
-            BlockLayout {
+            StructLayout {
                 name: Type::NoType,
                 feilds: HashMap::new(),
                 methods: vec![],
@@ -140,10 +140,10 @@ impl TTable {
     pub fn verify(&mut self, ty: Type) -> Option<Type> {
         self.content.keys().into_iter().find(|t| **t == ty).cloned()
     }
-    pub fn getLayout(&mut self, ty: Type) -> Option<BlockLayout> {
+    pub fn getLayout(&mut self, ty: Type) -> Option<StructLayout> {
         self.content.get(&ty).cloned()
     }
-    pub fn add_type(&mut self, ty: Type, b: BlockLayout) -> () {
+    pub fn add_type(&mut self, ty: Type, b: StructLayout) -> () {
         self.content.insert(ty, b);
     }
     pub fn register_plugin(&mut self, ty: Type, plugin: Function) {
@@ -168,6 +168,7 @@ impl TTable {
                                 ty: Box::new(f.type_hint.clone()),
                             }
                         }
+                        Type::GenericAtom { ty } => f.type_hint = *ty.clone(),
                         _ => (),
                     }
                 }

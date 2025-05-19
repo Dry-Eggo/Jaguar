@@ -1,4 +1,8 @@
-use super::{function::Function, type_table::TTable, var_table::VTable};
+use super::{
+    function::{Function, Generic_Function},
+    type_table::TTable,
+    var_table::VTable,
+};
 #[derive(Debug, Clone)]
 pub struct Bundle {
     pub name: String,
@@ -7,7 +11,7 @@ pub struct Bundle {
     pub types: TTable,
     pub bundles: Vec<Bundle>,
     pub path: String,
-    pub gfunctions: Vec<Function>,
+    pub gfunctions: Vec<Generic_Function>,
 }
 
 impl Bundle {

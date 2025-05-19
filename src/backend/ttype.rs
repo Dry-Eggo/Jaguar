@@ -11,7 +11,9 @@ pub enum Type {
     },
     CHAR,
     Custom(String),
-    GenericAtom(String),
+    GenericAtom {
+        ty: Box<Type>,
+    },
     list(Box<Type>, String), /* list<T, N> T: Type N: size */
     I16,
     I32,
@@ -89,8 +91,8 @@ impl Type {
                 // println!("Debug: Final Generic name: {g}");
                 return g;
             }
-            Type::GenericAtom(v) => {
-                return format!("_##{v}");
+            Type::GenericAtom { ty } => {
+                return format!("_##{}", ty.to_str());
             }
             Type::NoType => return "void".into(),
             _ => {

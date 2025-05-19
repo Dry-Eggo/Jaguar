@@ -21,3 +21,9 @@ target/
 *.out
 *.bin
 *.o
+
+
+.gitignore
+makefile
+# build/
+var.s

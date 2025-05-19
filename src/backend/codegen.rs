@@ -14,7 +14,7 @@ use crate::parser::{FunctionArg, Node, Parser, Spanned};
 use super::bundle::Bundle;
 use super::compile_error::{CompileError, ErrLevel};
 use super::context::Context;
-use super::function::Function;
+use super::function::{Function, Generic_Function};
 use super::ttype::Type;
 use super::type_table::TTable;
 use super::var::Var;
@@ -30,7 +30,7 @@ pub(crate) struct FieldLayout {
     ty: Type,
 }
 #[derive(Debug, Clone)]
-pub struct BlockLayout {
+pub struct StructLayout {
     pub name: Type,
     pub feilds: HashMap<String, FieldLayout>,
     pub methods: Vec<Function>,
@@ -46,7 +46,6 @@ enum RefStyle {
 struct ExprResult {
     stream: String,
     is_ref: bool,
-    is_deref: bool,
     refed_var: Option<String>,
     type_hint: Box<Type>,
     var: Option<String>,
@@ -63,8 +62,6 @@ pub enum Section {
 pub enum BodyType {
     GENERIC,
     NORMAL,
-    LOOP,
-    IF,
 }
 
 pub struct Generator {
@@ -81,7 +78,7 @@ pub struct Generator {
     func: String,
     func_table: Vec<Function>,
     generics: Vec<Generic>,
-    gfunc_table: Vec<Function>,
+    gfunc_table: Vec<Generic_Function>,
     global_context: Context,
     has_error: bool,
     header: String,
@@ -99,6 +96,7 @@ pub struct Generator {
     buildpath: Box<PathBuf>,
     generic_stream: String,
     generic_headers: Vec<(String, String)>, // path, content
+    current_scope_return_type: Type,        // Validating return statements
 }
 #[derive(Debug, Clone)]
 pub struct Generic {
@@ -156,6 +154,7 @@ impl Generator {
             buildpath: Box::new(Path::new(&builddir).to_path_buf()),
             generic_stream: String::new(),
             generic_headers: vec![],
+            current_scope_return_type: Type::NoType,
         }
     }
     pub fn change_scope(&mut self, name: &str) {
@@ -179,6 +178,7 @@ impl Generator {
         if self.is_included {
             self.emit("#pragma once\n");
         }
+        /* Path to Runtime and generic helper header */
         self.emit(&format!(
             "\n#include \"/home/dry/Documents/Eggo/jaguar/std/claw.h\"\n#include \"{}\"",
             format!("{}/__generics__.h", self.buildpath.to_str().unwrap())
@@ -221,22 +221,38 @@ impl Generator {
                                 body.clone().span,
                                 ErrLevel::ERROR,
                             ));
+                            self.flush();
                             exit(1); /* should not reach here */
                         }
                     });
-                    let bundle = Bundle::new(
-                        alias,
-                        self.current_context.get_content(),
-                        self.func_table.clone(),
-                        self.types.clone(),
-                        self.bundles.clone(),
-                        self.outfilepath.clone(),
-                    );
-                    self.current_context = sc;
-                    self.types = st;
-                    self.func_table = sf;
-                    self.bundles = sb;
-                    self.bundles.push(bundle);
+                    let saved_bundle = self.bundles.clone();
+                    let b = self.bundles.iter_mut().find(|p| p.name == alias);
+                    if let Some(b1) = b {
+                        b1.vars
+                            .content
+                            .append(&mut self.current_context.content.content.clone());
+                        b1.functions.append(&mut self.func_table.clone());
+                        b1.types.content.extend(self.types.content.clone());
+                        b1.bundles.append(&mut saved_bundle.clone());
+                        self.current_context = sc;
+                        self.types = st;
+                        self.func_table = sf;
+                        self.bundles = sb;
+                    } else {
+                        let bundle = Bundle::new(
+                            alias,
+                            self.current_context.get_content(),
+                            self.func_table.clone(),
+                            self.types.clone(),
+                            self.bundles.clone(),
+                            self.outfilepath.clone(),
+                        );
+                        self.current_context = sc;
+                        self.types = st;
+                        self.func_table = sf;
+                        self.bundles = sb;
+                        self.bundles.push(bundle);
+                    }
                 }
                 Node::BundleAccess { base: _, field: _ } => {
                     let out = self.gen_expr(Box::new(node), Type::Any, RefStyle::COPY);
@@ -253,7 +269,6 @@ impl Generator {
                         .unwrap()
                         .to_string();
                     let import_path = format!("{}/{}", p_import_path, path);
-                    // println!("finat: {import_path}");
                     if !Path::exists(Path::new(import_path.as_str())) {
                         self.consume(CompileError::new(
                             format!("Could not resolve {}", path),
@@ -266,10 +281,8 @@ impl Generator {
                     }
                     let source = std::fs::read_to_string(import_path.clone()).unwrap();
                     let ext = path.split_at(path.len() - 3).1;
+                    #[allow(unused_assignments)]
                     let mut output = import_path.clone();
-                    if ext == ".jr" {
-                        output = path.clone().split_at(path.len() - 3).0.to_string();
-                    }
                     let mut tokenizer = lexer::Tokenizer::new(&source);
                     let mut tokens = Vec::new();
                     loop {
@@ -291,10 +304,6 @@ impl Generator {
                         .unwrap()
                         .to_string();
                     output = format!("{}/{}.h", self.buildpath.to_str().unwrap(), p);
-                    // println!("importing from {import_path}");
-                    // println!("outpath = : {}", output);
-                    // println!("final_output: {final_output}");
-                    // exit(1);
                     let mut found = false;
                     for mut b in self.bundles.clone() {
                         if b.refuse_dup(output.clone()).is_some() {
@@ -325,7 +334,6 @@ impl Generator {
                             cgen.generate(cgen.source.clone());
                             cgen.rest();
                             self.bundled.append(&mut cgen.bundled.clone());
-                            // self.bundles.append(&mut cgen.bundles.clone());
                             let mut new_bundle = Bundle::new(
                                 alias.clone(),
                                 cgen.var_table,
@@ -351,10 +359,29 @@ impl Generator {
                                     };
                                 }
                             }
+                            for gf in &mut new_bundle.gfunctions {
+                                let g = gf.clone();
+                                for arg in &mut gf.args {
+                                    println!("Wrapping ({}, {:?})", arg.name.clone(), g);
+                                    if !is_builtin(arg.type_hint.clone())
+                                        && !gf.generics.contains(&arg.type_hint)
+                                    {
+                                        arg.type_hint = Type::BundledType {
+                                            bundle: alias.clone(),
+                                            ty: Box::new(arg.type_hint.clone()),
+                                        };
+                                    }
+                                }
+                                if !is_builtin(gf.ty.clone()) {
+                                    gf.ty = Type::BundledType {
+                                        bundle: alias.clone(),
+                                        ty: Box::new(gf.ty.clone()),
+                                    }
+                                }
+                            }
                             new_bundle.types.wrap(alias.clone());
                             self.bundles.push(new_bundle);
                             self.generics.append(&mut cgen.generics);
-                            // exit(1);
                             let sv = self.cur_section.clone();
                             self.cur_section = Section::HEADER;
                             self.emit(format!("\n#include \"{output}\"").as_str());
@@ -370,18 +397,18 @@ impl Generator {
                     self.emit(";");
                 }
 
-                Node::BlockStmt {
+                Node::StructStmt {
                     name,
                     fields,
                     meths,
                 } => {
-                    let layout: BlockLayout;
+                    let layout: StructLayout;
                     let mut b_fields: HashMap<String, FieldLayout> = HashMap::new();
                     let save = self.cur_section.clone();
                     self.cur_section = Section::HEADER;
-                    // self.emit(format!("\njaguar_deftype({});", name.clone()).as_str());
                     self.emit(format!("\ntypedef struct {name} {{\n").as_str());
 
+                    let mut encountered_fields: Vec<(String, Span)> = vec![];
                     for (_i, field) in fields.clone().iter().enumerate() {
                         if let Node::Feilds {
                             name: fname,
@@ -391,6 +418,7 @@ impl Generator {
                             if self.verify_type(type_hint.clone()) != None {
                                 self.emit(format!("\n\t{} {fname};", type_hint.to_str()).as_str());
                                 b_fields.insert(fname.clone(), FieldLayout { ty: type_hint });
+                                encountered_fields.push((fname, field.span.clone()));
                             } else {
                                 self.consume(CompileError::new(
                                     format!("Not a type, {}", type_hint.debug()),
@@ -402,7 +430,7 @@ impl Generator {
                             }
                         }
                     }
-                    layout = BlockLayout {
+                    layout = StructLayout {
                         name: Type::Custom(name.clone()),
                         feilds: b_fields.clone(),
                         methods: Vec::new(),
@@ -528,14 +556,14 @@ impl Generator {
                     }
                     self.cur_section = save;
                 }
-                Node::GenericBlockStmt {
+                Node::GenericStructStmt {
                     name,
                     fields,
-                    meths,
+                    mut meths,
                     generics,
                 } => {
                     self.cur_body_type = BodyType::GENERIC;
-                    let layout: BlockLayout;
+                    let layout: StructLayout;
                     let mut b_fields: HashMap<String, FieldLayout> = HashMap::new();
                     let save = self.cur_section.clone();
                     self.cur_section = Section::HEADER;
@@ -568,21 +596,37 @@ impl Generator {
                     }
                     stream.push_str(") ");
                     stream.push_str(format!("typedef struct {gname} {{\\").as_str());
-
+                    let mut encountered_fields: Vec<(String, Span)> = vec![];
                     for (_i, field) in fields.clone().iter().enumerate() {
                         if let Node::Feilds {
                             name: fname,
                             type_hint,
                         } = field.node.clone()
                         {
+                            if let Some(find) = encountered_fields.iter().find(|p| p.0 == fname) {
+                                self.consume(CompileError::new(
+                                    format!("Redefinition of field '{fname}'"),
+                                    None,
+                                    field.span.clone(),
+                                    ErrLevel::ERROR,
+                                ));
+                                self.consume(CompileError::new(
+                                    format!("Previously Defined here"),
+                                    None,
+                                    find.1.clone(),
+                                    ErrLevel::WARNING,
+                                ));
+                                self.flush();
+                            }
                             stream.push_str(
                                 format!("\n\t{} {fname}; \\", type_hint.to_str()).as_str(),
                             );
+                            encountered_fields.push((fname.clone(), field.span.clone()));
                             b_fields.insert(fname.clone(), FieldLayout { ty: type_hint });
                         }
                     }
                     let g = self.gfromstr(generics.clone());
-                    layout = BlockLayout {
+                    layout = StructLayout {
                         name: Type::Custom(name.clone()),
                         feilds: b_fields.clone(),
                         methods: Vec::new(),
@@ -590,6 +634,32 @@ impl Generator {
                     };
                     self.types.add_type(Type::Custom(name.clone()), layout);
                     stream.push_str(format!("\n}} {gname}; \\").as_str());
+                    let type_generics = self.gfromstr(generics.clone());
+                    for mut m in &mut meths {
+                        if let Ok(Spanned {
+                            node:
+                                Node::FnStmt {
+                                    body: _,
+                                    args,
+                                    name: _,
+                                    ret_type: _,
+                                    returns,
+                                    return_val,
+                                    vardaic: _,
+                                    mangled_name: _,
+                                },
+                            span: _,
+                        }) = m
+                        {
+                            for a in args {
+                                if type_generics.contains(&a.type_hint) {
+                                    a.type_hint = Type::GenericAtom {
+                                        ty: Box::new(a.type_hint.clone()),
+                                    };
+                                }
+                            }
+                        }
+                    }
                     for m in meths.clone() {
                         if let Spanned {
                             node:
@@ -625,12 +695,15 @@ impl Generator {
                                 .find(|m| m.get_name() == fname.clone())
                             {
                                 Some(plug) => {
-                                    println!(
-                                        "ToDo Err system: Plugin {} already exsist for type {}",
-                                        fname.clone(),
-                                        targ_type.debug().clone()
-                                    );
-                                    exit(1);
+                                    self.consume(CompileError::new(
+                                        format!(
+                                            "Method {} already exsist for type {}",
+                                            fname, name
+                                        ),
+                                        None,
+                                        span.clone(),
+                                        ErrLevel::ERROR,
+                                    ));
                                 }
                                 None => (),
                             }
@@ -769,42 +842,6 @@ impl Generator {
                     let i = self.gen_expr(Box::new(node), Type::Any, RefStyle::COPY);
                     self.emit(&i.stream);
                 }
-                Node::ForStmt {
-                    init,
-                    cond,
-                    inc,
-                    body,
-                } => {
-                    self.emit("\nfor (");
-                    if let Node::ReVal { name, value } = init.clone().node {
-                        if let Node::Token(v, _) = name.node.clone() {
-                            self.current_context.add(Var::new(
-                                v,
-                                Type::INT,
-                                false,
-                                None,
-                                name.clone().span,
-                            ));
-                        }
-                    }
-                    let iniout = self.gen_expr(init, Type::Any, RefStyle::COPY);
-                    self.emit("jaguar_int ");
-                    self.emit(&iniout.stream);
-                    self.emit(";");
-                    let condout = self.gen_expr(cond, Type::Any, RefStyle::COPY);
-                    self.emit(&condout.stream);
-                    self.emit(";");
-                    self.emit("(");
-                    let incout = self.gen_expr(inc, Type::Any, RefStyle::COPY);
-                    self.emit(&incout.stream);
-                    self.emit(")");
-                    self.emit(") {");
-                    self.generate(match body.node {
-                        Node::Program(k) => k,
-                        _ => vec![],
-                    });
-                    self.emit("}\n");
-                }
                 Node::BREAK => {
                     self.emit(&format!("break;"));
                 }
@@ -821,6 +858,8 @@ impl Generator {
                     vardaic,
                     mangled_name,
                 } => {
+                    let saved_type = self.current_scope_return_type.clone();
+                    self.current_scope_return_type = ret_type.clone();
                     let mut fn_ret = ret_type.clone();
                     let mut fmangled_name = name.clone();
                     if name == "main".to_string() {
@@ -834,7 +873,7 @@ impl Generator {
                     if self.is_included {
                         self.emit("extern inline ");
                     }
-                    if !returns.clone() && name != "main" {
+                    if self.type_match(fn_ret.clone(), Type::NoType) && name != "main" {
                         self.emit(format!("void {name}(").as_str());
                     } else {
                         self.emit(format!("{} {name} (", fn_ret.to_str()).as_str());
@@ -875,52 +914,7 @@ impl Generator {
                         }
                         _ => {}
                     }
-                    if returns {
-                        if ret_type == Type::NoType {
-                            self.consume(CompileError::new(
-                                format!(
-                                "Cannot pass return value to function '{}' that returns nothing",
-                                name
-                            ),
-                                Some("Remove the return statement".into()),
-                                return_val.clone().unwrap().span,
-                                ErrLevel::WARNING,
-                            ));
-                        }
-                        let out = self.gen_expr(
-                            Box::new(return_val.clone().unwrap()),
-                            ret_type.clone(),
-                            RefStyle::COPY,
-                        );
-                        if !self.type_match(ret_type.clone(), *out.type_hint.clone()) {
-                            self.consume(CompileError::new(
-                                format!(
-                                    "returning {} when {} was expected",
-                                    out.clone().type_hint.debug(),
-                                    ret_type.clone().debug(),
-                                ),
-                                None,
-                                return_val.clone().unwrap().span,
-                                ErrLevel::ERROR,
-                            ));
-                        }
-                        self.emit(
-                            format!("\n\treturn ({}){};", ret_type.to_str(), out.stream.clone())
-                                .as_str(),
-                        );
-                    } else {
-                        if ret_type != Type::NoType {
-                            self.consume(CompileError::new(
-                                format!(
-                                    "Function '{}' expected to return {:?} but returned nothing",
-                                    name, ret_type
-                                ),
-                                None,
-                                node.span,
-                                ErrLevel::WARNING,
-                            ));
-                        }
-                    }
+
                     if name == "main" && fn_ret == Type::INT {
                         self.emit("\n\treturn 0;");
                     }
@@ -936,6 +930,7 @@ impl Generator {
                     self.func_table.push(func);
                     self.exit_scope();
                     self.cur_section = Section::TEXT;
+                    self.current_scope_return_type = saved_type;
                     continue;
                 }
                 Node::GenericFnCall {
@@ -943,7 +938,6 @@ impl Generator {
                     generics,
                     args,
                 } => {
-                    // println!("Calling {callee:?} with {generics:?}generics");
                     let t = self.gen_expr(Box::new(node), Type::Any, RefStyle::COPY);
                     self.emit(&format!("{};", t.stream));
                 }
@@ -958,6 +952,8 @@ impl Generator {
                     vardaic,
                     mangled_name,
                 } => {
+                    let saved_type = self.current_scope_return_type.clone();
+                    self.current_scope_return_type = ret_type.clone();
                     self.cur_body_type = BodyType::GENERIC;
                     let is_generic = self.cur_body_type == BodyType::GENERIC;
                     let mut fix = "\\";
@@ -1015,53 +1011,16 @@ impl Generator {
                         index += 1;
                     }
                     stream.push_str(&format!(") {{{fix}"));
-                    self.generate(match body.node.clone() {
-                        Node::Program(k) => k.clone(),
-                        _ => Vec::new(),
-                    });
-                    if returns {
-                        if ret_type == Type::NoType {
-                            self.consume(CompileError::new(
-                                format!(
-                                "Cannot pass return value to function '{}' that returns nothing",
-                                name
-                            ),
-                                Some("Remove the return statement".into()),
-                                return_val.clone().unwrap().span,
-                                ErrLevel::WARNING,
-                            ));
+                    match body.node.clone() {
+                        Node::Program(k) => {
+                            for node in k.clone() {
+                                let s = self.gen_expr(Box::new(node), Type::Any, RefStyle::COPY);
+                                stream += &format!("\n{};{fix}", s.stream);
+                            }
                         }
-                        let out = self.gen_expr(
-                            Box::new(return_val.clone().unwrap()),
-                            ret_type.clone(),
-                            RefStyle::COPY,
-                        );
-                        if !self.type_match(ret_type.clone(), *out.type_hint.clone()) {
-                            self.consume(CompileError::new(
-                                format!(
-                                    "returning {} when {} was expected",
-                                    out.clone().type_hint.debug(),
-                                    ret_type.clone().debug(),
-                                ),
-                                None,
-                                return_val.clone().unwrap().span,
-                                ErrLevel::ERROR,
-                            ));
-                        }
-                        stream.push_str(&format!("\n\treturn {};\\", out.stream.clone()));
-                    } else {
-                        if ret_type != Type::NoType {
-                            self.consume(CompileError::new(
-                                format!(
-                                    "Function '{}' expected to return {:?} but returned nothing",
-                                    name, ret_type
-                                ),
-                                None,
-                                node.span,
-                                ErrLevel::WARNING,
-                            ));
-                        }
+                        _ => {}
                     }
+
                     stream.push_str(&format!("\n}}\n"));
                     let mut func = Function::new(
                         name.clone(),
@@ -1072,7 +1031,8 @@ impl Generator {
                     );
                     func.gen_name = gname;
                     func.args = args.clone();
-                    self.gfunc_table.push(func);
+                    self.gfunc_table
+                        .push(func.to_generic(self.gfromstr(generics.clone())));
                     self.exit_scope();
                     self.cur_offset = saved_offset;
                     self.cur_section = Section::TEXT;
@@ -1092,6 +1052,7 @@ impl Generator {
                         generics: g,
                     });
                     self.cur_body_type = BodyType::NORMAL;
+                    self.current_scope_return_type = saved_type;
                     continue;
                 }
                 Node::BinaryExpr { lhs, opr, rhs } => {}
@@ -1265,14 +1226,9 @@ impl Generator {
         outfile.write(self.header.as_bytes()).unwrap();
         outfile.write(self.text.as_bytes()).unwrap();
         outfile.write(self.func.as_bytes()).unwrap();
-        // println!("generi_stream:\n{:#?}", self.generic_headers);
         for (path, content) in self.generic_headers.clone() {
             let mut f = File::create(path.clone()).unwrap();
             f.write(content.as_bytes()).unwrap();
-            // self.generic_stream += &format!(
-            //     "#pragma once\n\n#include \"{path}\"\n{}",
-            //     self.generic_stream
-            // );
             self.generic_stream
                 .insert_str(0, &format!("#pragma once\n\n#include \"{path}\""));
         }
@@ -1337,7 +1293,6 @@ impl Generator {
                 return ExprResult {
                     stream,
                     is_ref: false,
-                    is_deref: false,
                     refed_var: None,
                     type_hint: Box::new(Type::INT),
                     var: None,
@@ -1369,7 +1324,6 @@ impl Generator {
                 return ExprResult {
                     stream: format!("\"{value}\""),
                     is_ref: false,
-                    is_deref: false,
                     refed_var: None,
                     type_hint: Box::new(Type::STR),
                     var: Some(format!("(const char*)\"{value}\"")),
@@ -1396,7 +1350,6 @@ impl Generator {
                 return ExprResult {
                     stream: format!("\'{value}\'"),
                     is_ref: false,
-                    is_deref: false,
                     refed_var: None,
                     type_hint: Box::new(Type::CHAR),
                     var: Some(format!("(const char*)\"{value}\"")),
@@ -1426,13 +1379,12 @@ impl Generator {
                             exit(1);
                         }
                         let fnm = fnc.unwrap().clone();
-                        let mut new_func = fnm.clone();
+                        let mut new_func = fnm.clone().to_function();
                         match fnm.ty.clone() {
                             Type::Generic {
                                 base,
                                 generics: grcs,
                             } => {
-                                // println!("Given generics: {generics:?}\nrequired generics {grcs:?}");
                                 new_func.ty = Type::Generic {
                                     base: base.clone(),
                                     generics: generics.clone(),
@@ -1489,15 +1441,54 @@ impl Generator {
                                 stream = f.stream;
                                 self.cur_section = sv;
                                 return ExprResult {
-                                    stream: stream,
+                                    stream,
                                     is_ref: false,
-                                    is_deref: false,
                                     refed_var: None,
                                     type_hint: Box::new(f.type_hint),
                                     var: None,
                                 };
                             }
-                            _ => {}
+                            t => {
+                                println!("{generics:?}");
+                                new_func.ty = t.clone();
+                                let mut gname = new_func.get_name();
+                                stream += &format!("\nGENERIC_FN_{v}(");
+                                for t in generics.iter().enumerate() {
+                                    stream += &format!("{}", t.1.to_str());
+                                    gname += &format!("_{}", t.1.to_str());
+                                    if t.0 != generics.len() - 1 {
+                                        stream += &format!(",");
+                                    }
+                                }
+                                new_func.name = gname.clone();
+                                let idx = 0;
+                                for a in new_func.args.clone() {}
+                                self.func_table.push(new_func.clone());
+                                stream += &format!("){fix}\n");
+                                let sv = self.cur_section.clone();
+                                self.cur_section = Section::FUNC;
+                                let n = Spanned {
+                                    node: Node::FcCall {
+                                        params: args,
+                                        callee: Box::new(Spanned {
+                                            node: Node::Token(gname, false),
+                                            span: callee.span,
+                                        }),
+                                    },
+                                    span: expr.span.clone(),
+                                };
+                                let f = self.gen_func_call(Box::new(n), target_type);
+                                self.generic_stream.push_str(&stream);
+                                stream = f.stream;
+                                self.cur_section = sv;
+                                return ExprResult {
+                                    stream,
+                                    is_ref: false,
+                                    refed_var: None,
+                                    type_hint: Box::new(f.type_hint),
+                                    var: None,
+                                };
+                            }
                         }
                     }
                     _ => {}
@@ -1537,7 +1528,6 @@ impl Generator {
                 return ExprResult {
                     stream: stream.clone(),
                     is_ref: false,
-                    is_deref: false,
                     refed_var: None,
                     type_hint: Box::new(Type::list(list_type, list_size)),
                     var: Some(stream),
@@ -1592,7 +1582,6 @@ impl Generator {
                         return ExprResult {
                             stream: stream.clone(),
                             is_ref: false,
-                            is_deref: false,
                             refed_var: None,
                             type_hint: Box::new(ty),
                             var: Some("foo".to_owned()),
@@ -1617,7 +1606,6 @@ impl Generator {
                         return ExprResult {
                             stream: stream.clone(),
                             is_ref: false,
-                            is_deref: false,
                             refed_var: None,
                             type_hint: Box::new(ty),
                             var: Some("foo".to_owned()),
@@ -1629,13 +1617,12 @@ impl Generator {
                 return ExprResult {
                     stream: stream.clone(),
                     is_ref: false,
-                    is_deref: false,
                     refed_var: None,
                     type_hint: Box::new(Type::NoType),
                     var: Some("foo".to_owned()),
                 };
             }
-            Node::BlockInit { fields } => {
+            Node::StructInit { fields } => {
                 let block_name = target_type.clone();
                 let block_fields = fields.clone();
                 if let Type::Generic { base, generics } = target_type.clone() {
@@ -1671,11 +1658,8 @@ impl Generator {
                     // Swapping all generic types in old layout and creating a new layout
                     let mut new_layout = l.clone().unwrap();
                     let g = self.generics.iter().find(|p| p.name == *base);
-                    // println!("g: {:?}", g);
-                    // println!("gn: {:?}", generics);
                     let mut gidx = 0;
                     for field in &mut new_layout.feilds {
-                        // println!("Examining {i}, {}", field.1.ty.to_str());
                         if g.unwrap().generics.contains(&field.1.ty) {
                             field.1.ty = generics.get(gidx).unwrap().clone();
                             gidx += 1;
@@ -1685,7 +1669,6 @@ impl Generator {
                     return ExprResult {
                         stream: stream.clone(),
                         is_ref: false,
-                        is_deref: false,
                         refed_var: None,
                         type_hint: Box::new(target_type),
                         var: Some(stream),
@@ -1707,7 +1690,6 @@ impl Generator {
                 }
                 let layout = self.get_layout(t);
                 if matches!(layout, None) {
-                    // self.error(format!("Not a type {}", block_name.to_str()), expr);
                     self.consume(CompileError::new(
                         format!("Not a type, {}", block_name.debug()),
                         None,
@@ -1751,10 +1733,6 @@ impl Generator {
                                 stream += ",";
                             }
                         } else {
-                            // self.error(
-                            //     format!("Type {} has no field {field}", block_name.debug()),
-                            //     &b_field,
-                            // );
                             self.consume(CompileError::new(
                                 format!("Type {} has no field {field}", block_name.debug()),
                                 None,
@@ -1770,7 +1748,6 @@ impl Generator {
                 return ExprResult {
                     stream: stream.clone(),
                     is_ref: false,
-                    is_deref: false,
                     refed_var: None,
                     type_hint: Box::new(block_name.clone()),
                     var: Some(stream),
@@ -1787,7 +1764,6 @@ impl Generator {
                 return ExprResult {
                     stream,
                     is_ref: true,
-                    is_deref: false,
                     refed_var: out.refed_var.clone(),
                     type_hint: Box::new(Type::PTR(out.type_hint)),
                     var: out.var,
@@ -1802,7 +1778,6 @@ impl Generator {
                     v_var = Some(name.clone());
 
                     if let Some(var) = self.lookup_variable(name).cloned() {
-                        // var.is_ref = true;
                         type_hint = var.type_hint.clone();
                     }
                 }
@@ -1812,7 +1787,6 @@ impl Generator {
                 return ExprResult {
                     stream,
                     is_ref: false,
-                    is_deref: true,
                     refed_var: out.refed_var.clone(),
                     type_hint: Box::new(type_hint),
                     var: v_var,
@@ -1824,11 +1798,6 @@ impl Generator {
                         RefStyle::DEREF => {
                             stream += format!("{}", val.name).as_str();
                             if !val.is_ref {
-                                // self.error(
-                                //     format!("Cannot dereference {}; not a reference", var),
-                                //     expr,
-                                // );
-
                                 self.consume(CompileError::new(
                                     format!("Cannot dereference value at '{var}'. Not a reference"),
                                     None,
@@ -1845,7 +1814,6 @@ impl Generator {
                             return ExprResult {
                                 stream,
                                 is_ref: false,
-                                is_deref: true,
                                 refed_var: Some(var.clone()),
                                 type_hint: Box::new(val.type_hint),
                                 var: Some(var),
@@ -1856,7 +1824,6 @@ impl Generator {
                             return ExprResult {
                                 stream,
                                 is_ref: val.is_ref,
-                                is_deref: false,
                                 refed_var: Some(var.clone()),
                                 type_hint: Box::new(val.type_hint.clone()),
                                 var: Some(var),
@@ -1868,7 +1835,6 @@ impl Generator {
                             return ExprResult {
                                 stream,
                                 is_ref: true,
-                                is_deref: false,
                                 refed_var: Some(var.clone()),
                                 type_hint: Box::new(val.clone().type_hint),
                                 var: Some(var),
@@ -1877,7 +1843,6 @@ impl Generator {
                         _ => (),
                     }
                 } else {
-                    // self.error(format!("Use of Undeclared Variable '{}'", var), expr);
                     self.consume(CompileError::new(
                         format!("Use of Undeclared Symbol '{var}'"),
                         None,
@@ -1889,7 +1854,6 @@ impl Generator {
                 return ExprResult {
                     stream,
                     is_ref: false,
-                    is_deref: false,
                     refed_var: None,
                     type_hint: Box::new(Type::NoType),
                     var: None,
@@ -1915,7 +1879,6 @@ impl Generator {
                 return ExprResult {
                     stream,
                     is_ref: v_is_ref,
-                    is_deref: v_is_deref,
                     refed_var: None,
                     type_hint: Box::new(ty),
                     var: None,
@@ -1927,12 +1890,31 @@ impl Generator {
                 if ig {
                     fix == "\\";
                 }
-                let out = self.gen_expr(v, Type::Any, RefStyle::COPY);
-                stream += &format!("{fix}return {};", out.stream);
+                let out = self.gen_expr(
+                    v.clone(),
+                    self.current_scope_return_type.clone(),
+                    RefStyle::COPY,
+                );
+                if !self.type_match(
+                    *out.type_hint.clone(),
+                    self.current_scope_return_type.clone(),
+                ) {
+                    self.consume(CompileError::new(
+                        format!(
+                            "Returning '{}' when '{}' was expected",
+                            out.type_hint.debug(),
+                            self.current_scope_return_type.debug()
+                        ),
+                        None,
+                        v.span.clone(),
+                        ErrLevel::ERROR,
+                    ));
+                    self.flush();
+                }
+                stream += &format!("{fix}return {}", out.stream);
                 return ExprResult {
                     stream,
                     is_ref: false,
-                    is_deref: false,
                     refed_var: None,
                     type_hint: Box::new(Type::NoType),
                     var: None,
@@ -1943,7 +1925,6 @@ impl Generator {
                 return ExprResult {
                     stream,
                     is_ref: false,
-                    is_deref: false,
                     refed_var: None,
                     type_hint: Box::new(Type::NoType),
                     var: None,
@@ -1954,10 +1935,6 @@ impl Generator {
                 if !is_int(*out.type_hint.clone())
                     && opr.clone() != TokenType::Operator("==".to_owned())
                 {
-                    // self.error(
-                    //     format!("Cannot perform arithmethic on type {:?}", out.type_hint),
-                    //     &*lhs,
-                    // );
                     self.consume(CompileError::new(
                         format!(
                             "Type {} does not support binary arithmetic'",
@@ -1974,10 +1951,6 @@ impl Generator {
                 if !is_int(*out.type_hint.clone())
                     && opr.clone() != TokenType::Operator("==".to_owned())
                 {
-                    // self.error(
-                    //     format!("Cannot perform arithmethic on type {:?}", out.type_hint),
-                    //     &*rhs,
-                    // );
                     self.consume(CompileError::new(
                         format!(
                             "Type {} does not support binary arithmetic'",
@@ -1994,9 +1967,7 @@ impl Generator {
                         stream += "+";
                     }
                     crate::lexer::TokenType::Operator(val) if val == "-".to_owned() => {
-                        // stream += "\n\tpush rax";
                         stream += "-";
-                        // stream += "\n\tpop rbx";
                     }
                     crate::lexer::TokenType::Operator(val) if val == "*".to_owned() => {
                         stream += "*";
@@ -2008,7 +1979,6 @@ impl Generator {
                         stream += &val;
                     }
                     _ => {
-                        // self.error(format!("Not an Operator {:?}", opr), &*expr);
                         self.consume(CompileError::new(
                             format!("Not an Operator {:#?}", opr),
                             None,
@@ -2023,7 +1993,6 @@ impl Generator {
                 return ExprResult {
                     stream: stream.clone(),
                     is_ref: false,
-                    is_deref: false,
                     refed_var: None,
                     type_hint: Box::new(Type::INT),
                     var: Some(stream),
@@ -2033,7 +2002,6 @@ impl Generator {
                 if let Node::Token(var, _) = base.node.clone() {
                     let bndl = self.bundles.iter().find(|b| b.name == var);
                     if matches!(bndl, None) {
-                        // self.error(format!("Could not resolve {var}"), &base);
                         self.consume(CompileError::new(
                             format!("Could not resolve {var}"),
                             None,
@@ -2044,8 +2012,6 @@ impl Generator {
                         exit(100);
                     }
                     if let Node::FcCall { params, callee } = field.node.clone() {
-                        // let res =
-                        //     self.gen_bndl_func(callee, params, bndl.unwrap().clone().functions);
                         let save = self.func_table.clone();
                         self.func_table = bndl.unwrap().functions.clone();
                         let res = self.gen_func_call(field, target_type);
@@ -2054,7 +2020,6 @@ impl Generator {
                         return ExprResult {
                             stream,
                             is_ref: false,
-                            is_deref: false,
                             refed_var: None,
                             type_hint: Box::new(res.type_hint.clone()),
                             var: None,
@@ -2072,9 +2037,32 @@ impl Generator {
                         return ExprResult {
                             stream,
                             is_ref: false,
-                            is_deref: false,
                             refed_var: None,
                             type_hint: Box::new(*out2.type_hint.clone()),
+                            var: None,
+                        };
+                    } else if let Node::GenericFnCall {
+                        callee,
+                        generics,
+                        args,
+                    } = field.node.clone()
+                    {
+                        let save_function_table = self.func_table.clone();
+                        let save_gfunction_table = self.gfunc_table.clone();
+                        let save_types = self.types.clone();
+                        self.func_table = bndl.unwrap().functions.clone();
+                        self.gfunc_table = bndl.unwrap().gfunctions.clone();
+                        self.types = bndl.unwrap().types.clone();
+                        let res = self.gen_expr(field, target_type, RefStyle::COPY);
+                        self.func_table = save_function_table;
+                        self.gfunc_table = save_gfunction_table;
+                        self.types = save_types;
+                        stream += format!("\n\t{}", res.stream).as_str();
+                        return ExprResult {
+                            stream,
+                            is_ref: false,
+                            refed_var: None,
+                            type_hint: res.type_hint.clone(),
                             var: None,
                         };
                     } else {
@@ -2083,7 +2071,6 @@ impl Generator {
                         return ExprResult {
                             stream,
                             is_ref: false,
-                            is_deref: false,
                             refed_var: None,
                             type_hint: Box::new(*out.type_hint),
                             var: None,
@@ -2097,7 +2084,6 @@ impl Generator {
                 return ExprResult {
                     stream,
                     is_ref: false,
-                    is_deref: false,
                     refed_var: None,
                     type_hint: Box::new(out.type_hint.clone()),
                     var: None,
@@ -2112,8 +2098,6 @@ impl Generator {
                 }
                 let layout = self.get_layout(*out.type_hint.clone());
                 if matches!(layout, None) {
-                    // ToDo : Error Stream
-                    // self.errorout.type_hint.debug()(format!("Not a type {:?}", *out.type_hint), &base);
                     self.consume(CompileError::new(
                         format!("Not a type,  {}", out.type_hint.debug()),
                         None,
@@ -2125,13 +2109,6 @@ impl Generator {
                 }
                 let mut type_hint: Box<Type> = Box::new(Type::NoType);
                 if !layout.as_ref().unwrap().feilds.contains_key(&field.clone()) {
-                    // self.error(
-                    //     format!(
-                    //         "Type {:?} contains no member {field}",
-                    //         *out.type_hint.clone()
-                    //     ),
-                    //     &base,
-                    // );
                     self.consume(CompileError::new(
                         format!("Type {} has no field {field}", out.type_hint.debug()),
                         None,
@@ -2149,7 +2126,6 @@ impl Generator {
                     .unwrap()
                     .clone();
                 if out.var.clone() == None {
-                    // self.error(format!("Use of Undeclared variable {}", field), &expr);
                     self.consume(CompileError::new(
                         format!("Use of undeclared symbol {field}"),
                         None,
@@ -2166,10 +2142,6 @@ impl Generator {
                     }
                     type_hint = Box::new(v_field.ty);
                 } else {
-                    // self.error(
-                    //     format!("Use of Undeclared variable {}", out.var.unwrap().clone()),
-                    //     &expr,
-                    // );
                     self.consume(CompileError::new(
                         format!("Use of undeclared symbol {}", out.var.unwrap().clone()),
                         None,
@@ -2182,7 +2154,6 @@ impl Generator {
                 return ExprResult {
                     stream,
                     is_ref: false,
-                    is_deref: false,
                     refed_var: None,
                     type_hint,
                     var: out.var,
@@ -2190,7 +2161,6 @@ impl Generator {
             }
             Node::ReVal { name, value } => match name.node.clone() {
                 Node::ListAccess { name: lname, index } => {
-                    // println!("Nod: {name:#?}");
                     let out = self.gen_expr(name, Type::Any, RefStyle::COPY);
                     let v = self.gen_expr(value, Type::Any, RefStyle::COPY);
                     stream += &format!("{} = {}", out.stream, v.stream);
@@ -2204,10 +2174,6 @@ impl Generator {
                         t = *v;
                     }
                     let layout = self.get_layout(t);
-                    // let var = self
-                    //     .lookup_variable(base_out.clone().var.unwrap().clone().as_str())
-                    //     .unwrap()
-                    //     .clone();
                     if matches!(layout, None) {
                         self.consume(CompileError::new(
                             format!("Not a Type. '{}'", base_out.type_hint.debug()),
@@ -2250,7 +2216,6 @@ impl Generator {
                     return ExprResult {
                         stream,
                         is_ref: v_is_ref,
-                        is_deref: v_is_deref,
                         refed_var: None,
                         type_hint: Box::new(val.type_hint),
                         var: None,
@@ -2274,8 +2239,9 @@ impl Generator {
                 mut targ_type,
                 args,
             } => {
+                let saved_type = self.current_scope_return_type.clone();
+                self.current_scope_return_type = *ret_type.clone();
                 let plugin_name = name.clone();
-                // println!("Debug: Plugin Name: ({plugin_name})");
                 let plugin_type = ret_type.clone();
                 let plugin_val = ret_val.clone();
                 let is_generic = {
@@ -2288,26 +2254,25 @@ impl Generator {
                 }
                 let mut self_type = Type::NoType;
                 let mut oplugin_name = String::new();
-                if is_generic {
+                oplugin_name += &targ_type.to_str();
+                self_type = if is_generic {
                     let v = self.generics.iter().find(|p| p.name == targ_type);
-                    // println!("Debug: Recieved Generic Metadata for ({v:?})");
                     if v.is_some() {
-                        oplugin_name += &targ_type.to_str();
                         for t in v.unwrap().generics.iter().enumerate() {
                             oplugin_name += &format!("_##{}", t.1.to_str());
                             if t.0 == v.unwrap().generics.len() - 1 {
-                                oplugin_name += "##_";
+                                oplugin_name += "##";
                             }
                         }
                     }
-                    self_type = Type::Generic {
+                    Type::Generic {
                         base: Box::new(targ_type.clone()),
                         generics: v.unwrap().generics.clone(),
-                    };
-                }
-                oplugin_name += &plugin_name;
-                // println!("Debug: Final Plugin name : ({oplugin_name})");
-                // println!("Debug: Ochestrating Plugin for ({targ_type:?})");
+                    }
+                } else {
+                    targ_type.clone()
+                };
+                oplugin_name += &format!("_{}", plugin_name);
                 self.change_scope(name.as_str());
                 self.cur_section = Section::FUNC;
                 stream.push_str(
@@ -2364,29 +2329,7 @@ impl Generator {
                     }
                     _ => {}
                 }
-                if ret_val.is_some() {
-                    // println!("Debug: Return Value for Plugin (genimpln_name}): ({ret_val:?})");
-                    let out = self
-                        .gen_expr(
-                            Box::new(ret_val.clone().unwrap()),
-                            *ret_type.clone(),
-                            RefStyle::COPY,
-                        )
-                        .clone();
-                    if !self.type_match(*ret_type.clone(), *out.clone().type_hint) {
-                        self.consume(CompileError::new(
-                            format!(
-                                "returning {} when {} was expected",
-                                out.clone().type_hint.debug(),
-                                ret_type.clone().debug(),
-                            ),
-                            None,
-                            ret_val.clone().unwrap().span,
-                            ErrLevel::ERROR,
-                        ));
-                    }
-                    stream.push_str(&format!("\treturn {};", out.stream.clone()));
-                }
+
                 stream.push_str(&format!("}}{fix}"));
                 let mut plugin = Function::new(
                     plugin_name.clone(),
@@ -2396,9 +2339,9 @@ impl Generator {
                     body.clone().node,
                 );
                 plugin.args = args;
-                // self.register_plugin(targ_type.clone(), plugin);
                 self.cur_section = Section::TEXT;
                 self.exit_scope();
+                self.current_scope_return_type = saved_type;
             }
             Node::IfStmt {
                 cond,
@@ -2575,6 +2518,55 @@ impl Generator {
                 self.current_context.add(new_var);
                 self.cur_offset += 1;
             }
+            Node::ForStmt {
+                init,
+                cond,
+                inc,
+                body,
+            } => {
+                let is_generic = {
+                    let v = self.cur_body_type == BodyType::GENERIC;
+                    v
+                };
+                let mut fix = "\\";
+                if !is_generic {
+                    fix = "";
+                }
+                stream.push_str("\nfor (");
+                if let Node::ReVal { name, value } = init.clone().node {
+                    if let Node::Token(v, _) = name.node.clone() {
+                        self.current_context.add(Var::new(
+                            v,
+                            Type::INT,
+                            false,
+                            None,
+                            name.clone().span,
+                        ));
+                    }
+                }
+                let iniout = self.gen_expr(init, Type::Any, RefStyle::COPY);
+                stream.push_str("jaguar_int ");
+                stream.push_str(&iniout.stream);
+                stream.push_str(";");
+                let condout = self.gen_expr(cond, Type::Any, RefStyle::COPY);
+                stream.push_str(&condout.stream);
+                stream.push_str(";");
+                stream.push_str("(");
+                let incout = self.gen_expr(inc, Type::Any, RefStyle::COPY);
+                stream.push_str(&incout.stream);
+                stream.push_str(")");
+                stream.push_str(") {");
+                match body.node.clone() {
+                    Node::Program(k) => {
+                        for node in k.clone() {
+                            let s = self.gen_expr(Box::new(node), Type::Any, RefStyle::COPY);
+                            stream += &format!("\n{};{fix}", s.stream);
+                        }
+                    }
+                    _ => {}
+                }
+                stream.push_str("}\n");
+            }
             _ => {
                 self.consume(CompileError::new(
                     format!("Not a Expression"),
@@ -2588,7 +2580,6 @@ impl Generator {
         ExprResult {
             stream,
             is_ref: v_is_ref,
-            is_deref: v_is_deref,
             refed_var: None,
             type_hint: Box::new(Type::NoType),
             var: None,
@@ -2651,6 +2642,7 @@ impl Generator {
                     ig = true;
                     gnrcs = generics.clone();
                 }
+                println!("\n\n{method:#?}\n{base_type:#?}");
 
                 fargs = method.clone().args;
                 let mut modifier = "";
@@ -2670,9 +2662,6 @@ impl Generator {
                     modifier = "&";
                 }
                 let g = self.gb();
-                // println!("{base_type:?}: is_generic: {is_generic}");
-                // println!("Debug: Predicate type: {}", base_type.genimpl());
-                // println!("Debug: In {}", out.stream)                exit(0);
                 if !is_generic {
                     stream += &format!(
                         "({{{fix}\n\t{}{gmod} __{} = {gvalmod}{};{fix}\n",
@@ -2761,7 +2750,6 @@ impl Generator {
                     let bundle: Option<Bundle> =
                         self.bundles.clone().iter().find(|b| b.name == var).cloned();
                     if matches!(bundle, None) {
-                        // self.error(format!("Could not reslove scope {}", var), &base);
                         self.consume(CompileError::new(
                             format!("Could not resolve scope {var}"),
                             Some("Confirm Bundle path".into()),
@@ -2794,7 +2782,6 @@ impl Generator {
                     .iter()
                     .find(|func| func.get_name() == fcname.clone());
                 if matches!(func, None) {
-                    // self.error(format!("Use of undeclared symbol {}", var), &expression);
                     self.consume(CompileError::new(
                         format!("Use of undeclared symbol {var}"),
                         None,
@@ -2804,6 +2791,7 @@ impl Generator {
                     self.flush();
                     exit(100);
                 }
+                // println!("here ({fcname}, {:?})", func.unwrap().ty.clone());
                 fargs = func.unwrap().args.clone();
                 fret_type = func.unwrap().ty.clone();
                 variadic = func.unwrap().variadic;
@@ -2816,15 +2804,6 @@ impl Generator {
         }
         let parlen = params.len();
         if (fargs.clone().len() != parlen) && !variadic {
-            // self.error(
-            //     format!(
-            //         "Invalid argument count. {} expected {} arguments but got {} instead",
-            //         fcname.clone(),
-            //         fargs.len(),
-            //         parlen
-            //     ),
-            //     &expression,
-            // );
             self.consume(CompileError::new(
                 format!("Invalid argument count. {fcname} expected {} parameters but got {parlen} instead", fargs.len()),
                 None,
@@ -3001,7 +2980,7 @@ impl Generator {
         self.types.verify(type_hint)
     }
 
-    fn get_layout(&mut self, type_hint: Type) -> Option<BlockLayout> {
+    fn get_layout(&mut self, type_hint: Type) -> Option<StructLayout> {
         if let Type::BundledType { bundle, ty } = type_hint {
             let bd = self.bundles.iter().find(|b| b.name == bundle).cloned();
             if matches!(bd, None) {
@@ -3308,7 +3287,7 @@ impl Generator {
         }
         g
     }
-    fn get_field_item(&mut self, layout: BlockLayout, name: &str, span: Span) -> Function {
+    fn get_field_item(&mut self, layout: StructLayout, name: &str, span: Span) -> Function {
         let m = layout.methods.iter().find(|p| p.get_name() == name);
         if m.is_none() {
             self.consume(CompileError::new(

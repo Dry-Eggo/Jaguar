@@ -12,9 +12,10 @@ extern inline jaguar_i32 opt_##T##_is_some(opt_##T* self); \
 extern inline T opt_##T##_unwrap(opt_##T *self) { \
 if (( self->is_good!= 1)){\
 __panic(jformat("Unwrapping a bad option"));\
-};	return self->value;}\
+};\
+return self->value;}\
 extern inline jaguar_i32 opt_##T##_is_some(opt_##T *self) { \
-	return self->is_good;}\
+return self->is_good;}\
 
 #define GENERIC_BLOCK_RESULT(U,E) typedef struct result_##U##_##E {\
 	U ok; \
@@ -22,7 +23,7 @@ extern inline jaguar_i32 opt_##T##_is_some(opt_##T *self) { \
 } result_##U##_##E; \
 
 #define GENERIC_FN_newopt(T) opt_##T newopt_##T (T i) {\
-	return (opt_##T) {.value = i,.is_good = 1};\
+return (opt_##T) {.value = i,.is_good = 1};\
 }
 
 
@@ -51,21 +52,23 @@ self->len = ( self->len+ 1);}\
 extern inline T vec_##T##_at(vec_##T *self,jaguar_u64 __idx) { \
 if (( __idx>= ( self->len- 1))){\
 __panic("Out of bounds: Vec<_>");\
-};	return self->data[__idx];}\
+};\
+return self->data[__idx];}\
 extern inline T vec_##T##_pop(vec_##T *self) { \
 if (( ( self->len- 1)<= 0)){\
 __panic("pop called on empty vector: Vec<_>");\
-};	return self->data[( self->len- 1)];}\
+};\
+return self->data[( self->len- 1)];}\
 extern inline void vec_##T##_grow(vec_##T *self) { \
 self->data = (T*)(realloc((void*)(self->data),( self->cap* 2)));\
 self->cap = ( self->cap* 2);}\
 extern inline jaguar_i32 vec_##T##_len(vec_##T *self) { \
-	return self->len;}\
+return self->len;}\
 extern inline jaguar_i32 vec_##T##_capacity(vec_##T *self) { \
-	return self->cap;}\
+return self->cap;}\
 extern inline opt_##T vec_##T##_get(vec_##T *self,jaguar_i32 __idx) { \
-	return (opt_##T) {.value = self->data[__idx]};}\
+return (opt_##T) {.value = self->data[__idx]};}\
 
 #define GENERIC_FN_newVec(T) vec_##T newVec_##T () {\
-	return (vec_##T) {.data = (T*)(malloc(( 8* 8))),.len = 1,.cap = 8};\
+return (vec_##T) {.data = (T*)(malloc(( 8* 8))),.len = 1,.cap = 8};\
 }

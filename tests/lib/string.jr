@@ -11,7 +11,7 @@ extern strdup(m:str): str;
 extern mem_get(bytes: i64): ptr<void>;
 extern memset(d: str, v: int, size:int): void;
 
-block string {
+struct string {
 	data: str,
 	len: int,
 

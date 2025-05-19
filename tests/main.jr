@@ -5,8 +5,12 @@ extern jformat(fmt: str, ...): str;
 extern println(msg: str): void;
 extern malloc(bytes: u64): ptr<void>;
 extern realloc(pointer: ptr<void>, bytes: u64): ptr<void>;
+extern write_int(i: int): void;
 
-block opt[T] {
+bundle "lib/string.jr" as string;
+bundle "lib/vec.jr" as vec;
+
+struct opt[T] {
 	value: T,
 	is_good: int,
 	fn unwrap(self): T {
@@ -18,9 +22,10 @@ block opt[T] {
 	fn is_some(self): int {
 		ret self.is_good;
 	}
+	
 }
  
-block result[U, E] {
+struct result[U, E] {
  	ok: U,
  	err: E,
 }
@@ -29,54 +34,17 @@ fn newopt[T](i: T): opt<T> {
  	ret {value: i, is_good: 1};
 }
 
-block vec[T] {
-	data: ptr<T>,
-	len: u64,
-	cap: u64,
 
-	fn push(self, __n: T): void {
-		if self.len == self.cap {
-			self.grow();
-		}
-		self.data[self.len - 1] = __n;
-		self.len = self.len +1;
-	}
-	fn at(self, __idx: u64): T {
-		if __idx >= self.len - 1 {
-			__panic("Out of bounds: Vec<_>");
-		}
-		ret self.data[__idx];
-	}
-	fn pop(self): T {
-		if self.len - 1 <= 0 {
-			__panic("pop called on empty vector: Vec<_>");
-		}
-		ret self.data[self.len - 1];
-	}
-	fn grow(self): void {
-		self.data = realloc(self.data as ptr<void>, self.cap * 2) as ptr<T>;
-		self.cap = self.cap * 2;
-	}
-	fn len(self): int {
-		ret self.len;
-	}
-	fn capacity(self): int {
-		ret self.cap;
-	}
-	fn get(self, __idx: int) : opt<T> {
-		ret {value: self.data[__idx]};
+
+struct Foo {
+	fn f(): str {
+		ret "hey";
 	}
 }
-
-fn newVec[T] (): vec<T> {
-	ret {data: malloc(8 * 8) as ptr<T>, len: 1, cap: 8};
-}
-
 
 fn main(): int {
-	let temp : vec<str> = newVec<str>();
-	temp.push("My name is abdul");
-	let t := temp.at(0);
-	println(t);
+	let t:= vec::newVec<int>();
+	t.push(2);
+	write_int(t.at(0));
 	ret 0;
 }

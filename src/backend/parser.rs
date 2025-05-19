@@ -18,10 +18,10 @@ pub enum Node {
         opr: TokenType,
         rhs: Box<Spanned<Node>>,
     },
-    BlockInit {
+    StructInit {
         fields: Vec<Spanned<Node>>,
     },
-    BlockStmt {
+    StructStmt {
         name: String,
         fields: Vec<Spanned<Node>>,
         meths: Vec<Result<Spanned<Node>, String>>,
@@ -147,7 +147,7 @@ pub enum Node {
         alias: String,
         symbols: Vec<String>,
     },
-    GenericBlockStmt {
+    GenericStructStmt {
         name: String,
         generics: Vec<String>,
         fields: Vec<Spanned<Node>>,
@@ -234,9 +234,9 @@ impl Parser {
                     program.push(extrn_stmt);
                     continue;
                 }
-                TokenType::Keyword(k) if k == "block" => {
-                    let block_stmt = self.parse_block();
-                    program.push(block_stmt);
+                TokenType::Keyword(k) if k == "struct" => {
+                    let struct_stmt = self.parse_struct();
+                    program.push(struct_stmt);
                     continue;
                 }
                 TokenType::Keyword(k) if k == "unpack" => {
@@ -588,7 +588,7 @@ impl Parser {
                     stmts.push(reval_stmt);
                     continue;
                 }
-                TokenType::Keyword(k) if k == "ret" && take_rets => {
+                TokenType::Keyword(k) if k == "ret" => {
                     self.advance();
                     let expr = self.parse_expr();
                     self.expect_separator(";");
@@ -761,6 +761,46 @@ impl Parser {
             Some(_) => None,
             None => None,
         }
+    }
+    fn is_generic_context(&mut self) -> bool {
+        let mut depth = 1;
+        let mut i = 1;
+        while let Some(token) = self.get(i) {
+            match token.kind {
+                TokenType::Operator(val) if val == ">" => {
+                    depth -= 1;
+                    if depth == 0 {
+                        if let Some(next) = self.get(i + 1) {
+                            match next.kind {
+                                TokenType::Separator(v) if v == "(" => return true,
+                                TokenType::DOT | TokenType::DCOLON => return true,
+                                TokenType::Operator(v) if v == "<" => depth += 1,
+                                TokenType::Operator(v) if v == "=" => return false,
+                                TokenType::Separator(v) if v == ";" || v == "," => return false,
+                                _ => return false,
+                            }
+                        } else {
+                            return false;
+                        }
+                    }
+                }
+                TokenType::Operator(val) if val == "<" => depth += 1,
+                TokenType::Operator(v)
+                    if ["+", "-", "*", "/", "%", "==", "!="].contains(&v.as_str()) =>
+                {
+                    return false;
+                }
+                TokenType::Separator(v) if [";", "]", ")"].contains(&v.as_str()) => {
+                    return false;
+                }
+                _ => {}
+            }
+            i += 1;
+            if i > 32 {
+                return false;
+            }
+        }
+        false
     }
     fn parse_logic_or(&mut self) -> Spanned<Node> {
         let start = self.next().span.start;
@@ -1004,7 +1044,7 @@ impl Parser {
                 self.expect_separator("}");
                 let end = self.before().span.end;
                 return Spanned {
-                    node: Node::BlockInit { fields },
+                    node: Node::StructInit { fields },
                     span: Span { start, end },
                 };
             }
@@ -1102,6 +1142,9 @@ impl Parser {
                     }
                 }
                 TokenType::Operator(v) if v == "<" => {
+                    if !self.is_generic_context() {
+                        return expr;
+                    }
                     self.advance();
                     let mut g = vec![];
                     while self.next().kind != TokenType::Operator(">".to_owned()) {
@@ -1376,9 +1419,9 @@ impl Parser {
         eprintln!("   | {}", format!("{caret_line}").as_str().yellow().bold());
     }
 
-    fn parse_block(&mut self) -> Spanned<Node> {
+    fn parse_struct(&mut self) -> Spanned<Node> {
         let start = self.peek().unwrap().clone().span.start;
-        self.advance(); // skip 'block'
+        self.advance(); // skip 'struct'
         let name = self.expect_identifier().unwrap().clone();
         if self.next().kind == TokenType::Separator("[".to_owned()) {
             let mut generics = vec![];
@@ -1429,7 +1472,7 @@ impl Parser {
                 });
             }
             self.expect_separator("}");
-            let node: Node = Node::GenericBlockStmt {
+            let node: Node = Node::GenericStructStmt {
                 name,
                 generics,
                 fields,
@@ -1479,7 +1522,7 @@ impl Parser {
             });
         }
         self.expect_separator("}");
-        let node: Node = Node::BlockStmt {
+        let node: Node = Node::StructStmt {
             name,
             fields,
             meths,
@@ -1599,9 +1642,9 @@ impl Parser {
                     );
                     exit(100);
                 }
-                TokenType::Keyword(val) if val == "block" => {
-                    let block = self.parse_block();
-                    stmts.push(block);
+                TokenType::Keyword(val) if val == "struct" => {
+                    let struct_stmt = self.parse_struct();
+                    stmts.push(struct_stmt);
                     continue;
                 }
                 TokenType::Ident(val)

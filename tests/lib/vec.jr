@@ -1,12 +1,45 @@
 extern malloc(bytes: u64): ptr<void>;
+extern realloc(pointer: ptr<void>, bytes: u64): ptr<void>;
+extern __panic(msg: str): void;
 
-block vec[T] {
+struct vec[T] {
 	data: ptr<T>,
 	len: u64,
 	cap: u64,
+
+	fn push(self, __n: T): void {
+		if self.len == self.cap {
+			self.grow();
+		}
+		self.data[self.len - 1] = __n;
+		self.len = self.len +1;
+	}
+	fn at(self, __idx: u64): T {
+		if __idx >= self.len - 1 {
+			__panic("Out of bounds: Vec<_>");
+		}
+		ret self.data[__idx];
+	}
+	fn pop(self): T {
+		if self.len - 1 <= 0 {
+			__panic("pop called on empty vector: Vec<_>");
+		}
+		ret self.data[self.len - 1];
+	}
+	fn grow(self): void {
+		self.data = realloc(self.data as ptr<void>, self.cap * 2) as ptr<T>;
+		self.cap = self.cap * 2;
+	}
+	fn len(self): int {
+		ret self.len;
+	}
+	fn capacity(self): int {
+		ret self.cap;
+	}
 }
 
-fn newvec[T](): vec<T> {
-	let temp : vec<T> = {data: malloc(24) as ptr<T>, len: 0, cap: 0};
-	ret temp;
-}	
+fn newVec[T] (): vec<T> {
+	ret {data: malloc(8 * 8) as ptr<T>, len: 1, cap: 8};
+}
+
+
