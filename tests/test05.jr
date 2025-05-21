@@ -1,0 +1,14 @@
+extern jprintln(fmt: str, ...): void;
+
+struct Foo {
+	name: str,
+	st fn new(name: str) : Foo {
+		ret {name: name};
+	}
+}
+ 
+
+fn main {
+	let i := Foo::new("Abdul");
+	jprintln("{s}", i.name);
+}

@@ -12,6 +12,7 @@ pub struct FunctionArg {
 }
 #[derive(Debug, Clone)]
 pub enum Node {
+    NULLPTR,
     BREAK,
     BinaryExpr {
         lhs: Box<Spanned<Node>>,
@@ -25,6 +26,7 @@ pub enum Node {
         name: String,
         fields: Vec<Spanned<Node>>,
         meths: Vec<Result<Spanned<Node>, String>>,
+        statics: Option<Vec<Spanned<Node>>>,
     },
     BundleAccess {
         base: Box<Spanned<Node>>,
@@ -79,6 +81,7 @@ pub enum Node {
         elsestmt: Option<Box<Spanned<Node>>>,
     },
     LetStmt {
+        is_mut: bool,
         name: String,
         type_hint: Type,
         value: Box<Spanned<Node>>,
@@ -224,7 +227,7 @@ impl Parser {
                     continue;
                 }
                 TokenType::Keyword(k) if k == "let" => {
-                    let var_stmt = self.parse_mk_stmt();
+                    let var_stmt = self.parse_let_stmt();
                     program.push(var_stmt);
                     continue;
                 }
@@ -284,9 +287,15 @@ impl Parser {
         }
         program
     }
-    fn parse_mk_stmt(&mut self) -> Spanned<Node> {
+    fn parse_let_stmt(&mut self) -> Spanned<Node> {
+        // let mut x : int = y;
         let start = self.peek().unwrap().clone().span.start;
+        let mut is_const = true;
         self.advance(); // skip mk keyword
+        if self.next().kind == TokenType::Keyword("mut".to_owned()) {
+            self.advance();
+            is_const = false;
+        }
         let vname = {
             let name = self.expect_identifier();
             name.unwrap().clone()
@@ -295,6 +304,12 @@ impl Parser {
         let mut vtype = Type::Any;
         if self.next().kind != TokenType::Operator("=".to_owned()) {
             vtype = self.parse_type().unwrap();
+            if !is_const {
+                if let Type::MUT(t) = vtype.clone() {
+                } else {
+                    vtype = Type::MUT(Box::new(vtype.clone()));
+                }
+            }
             self.advance();
         }
         self.expect_operator("=");
@@ -305,6 +320,7 @@ impl Parser {
             name: vname,
             type_hint: vtype,
             value: Box::new(value),
+            is_mut: !is_const,
         };
         Spanned {
             node: ast_node,
@@ -327,15 +343,15 @@ impl Parser {
                 let mut type_hint = Type::NoType;
                 let arg_name: String = self.expect_identifier().unwrap();
                 if arg_name == "self" {
-                    args.push(FunctionArg {
-                        name: arg_name.clone(),
-                        type_hint,
-                        is_ref: true,
-                    });
                     if self.next().kind == TokenType::Separator(",".to_owned()) {
+                        args.push(FunctionArg {
+                            name: arg_name.clone(),
+                            type_hint,
+                            is_ref: true,
+                        });
                         self.advance();
+                        continue;
                     }
-                    continue;
                 }
                 self.expect_separator(":");
                 let mut is_ref = false;
@@ -449,7 +465,7 @@ impl Parser {
                     self.advance();
                 }
                 TokenType::Keyword(k) if k == "let" => {
-                    let m = self.parse_mk_stmt();
+                    let m = self.parse_let_stmt();
                     stmts.push(m);
                     continue;
                 }
@@ -593,31 +609,7 @@ impl Parser {
                         }
                         None
                     }
-                    TokenType::Operator(v) if v == "<" => {
-                        self.advance();
-                        self.advance();
-                        let mut generics = vec![];
-                        while self.next().kind != TokenType::Operator(">".to_owned()) {
-                            let mut state = self.clone();
-                            let t = state.parse_type();
-                            if !t.is_some() {
-                                generics.push(Type::Custom(self.expect_identifier().unwrap()));
-                            } else {
-                                generics.push(t.unwrap());
-                                self.advance();
-                            }
-                            if self.next().kind == TokenType::Separator(",".to_owned()) {
-                                self.advance();
-                            }
-                        }
-                        if self.next().kind != TokenType::Operator(">".to_owned()) {
-                            self.todo_err("Expected closing delim: <");
-                        }
-                        Some(Type::Generic {
-                            base: Box::new(Type::Custom(custom.clone())),
-                            generics,
-                        })
-                    }
+
                     _ => {
                         if self.get(1).unwrap().kind == TokenType::Separator("{".to_string())
                             || (self.get(1).unwrap().kind == TokenType::Separator(",".to_owned())
@@ -655,6 +647,11 @@ impl Parser {
             Some(TokenType::Keyword(t)) if t == "u32" => Some(Type::U32),
             Some(TokenType::Keyword(t)) if t == "char" => Some(Type::CHAR),
             Some(TokenType::Keyword(t)) if t == "void" => Some(Type::NoType),
+            Some(TokenType::Keyword(k)) if k == "mut" => {
+                self.advance();
+                let inner = self.parse_type().unwrap();
+                return Some(Type::MUT(Box::new(inner)));
+            }
             Some(TokenType::Keyword(t)) if t == "list" => {
                 self.advance();
                 self.expect_operator("<");
@@ -664,7 +661,7 @@ impl Parser {
                 if let TokenType::Number(size) = self.next().kind {
                     self.advance();
                     if let TokenType::Operator(_) = self.next().kind {
-                        return Some(Type::list(Box::new(inner.unwrap()), size));
+                        return Some(Type::List(Box::new(inner.unwrap()), size));
                     } else {
                         self.expect_operator(">");
                         exit(100);
@@ -839,7 +836,14 @@ impl Parser {
                     span: Span { start, end },
                 };
             }
-
+            TokenType::Keyword(k) if k == "null" => {
+                self.advance();
+                let end = self.tokens.get(self.current - 1).unwrap().span.end;
+                return Spanned {
+                    node: Node::NULLPTR,
+                    span: Span { start, end },
+                };
+            }
             TokenType::Ident(val) | TokenType::Number(val) => {
                 // debug
                 let mut left = self.parse_term();
@@ -1207,67 +1211,73 @@ impl Parser {
     fn parse_extern(&mut self) -> Spanned<Node> {
         let start = self.peek().unwrap().span.start;
         self.advance(); // skip the keyword
-        let name = self.expect_identifier().unwrap().clone();
-        self.expect_separator("(");
-        let mut args = Vec::new();
-        let mut vardaic = false;
-        while self.peek().unwrap().kind.clone() != TokenType::Separator(')'.to_string()) {
-            let arg_name: String = {
-                match self.peek().cloned().unwrap().kind {
-                    TokenType::Ident(val) => {
-                        self.advance();
-                        val.clone()
+	if self.next().kind == TokenType::Keyword("fn".to_owned()) {
+	    self.advance();
+            let name = self.expect_identifier().unwrap().clone();
+            self.expect_separator("(");
+            let mut args = Vec::new();
+            let mut vardaic = false;
+            while self.peek().unwrap().kind.clone() != TokenType::Separator(')'.to_string()) {
+		let arg_name: String = {
+                    match self.peek().cloned().unwrap().kind {
+			TokenType::Ident(val) => {
+                            self.advance();
+                            val.clone()
+			}
+			_ => {
+                            self.error(
+				format!(
+                                    "Expected an Identifier, got {:?}",
+                                    self.peek().cloned().unwrap().kind.clone()
+				),
+				&self.peek().unwrap().span.clone(),
+                            );
+                            exit(100);
+			}
                     }
-                    _ => {
-                        self.error(
-                            format!(
-                                "Expected an Identifier, got {:?}",
-                                self.peek().cloned().unwrap().kind.clone()
-                            ),
-                            &self.peek().unwrap().span.clone(),
-                        );
-                        exit(100);
+		};
+		self.expect_separator(":");
+		let mut is_ref = false;
+		if self.peek().unwrap().clone().kind == TokenType::Operator('%'.to_string()) {
+                    is_ref = true;
+                    self.advance();
+		}
+		let type_hint = self.parse_type();
+		self.advance();
+		let arg = FunctionArg {
+                    name: arg_name,
+                    type_hint: type_hint.unwrap(),
+                    is_ref,
+		};
+		args.push(arg);
+		if self.peek().unwrap().clone().kind == TokenType::Separator(','.to_string()) {
+                    self.expect_separator(",");
+                    if self.peek().unwrap().clone().kind == TokenType::Vardaic {
+			self.advance();
+			vardaic = true;
+			break;
                     }
-                }
-            };
-            self.expect_separator(":");
-            let mut is_ref = false;
-            if self.peek().unwrap().clone().kind == TokenType::Operator('%'.to_string()) {
-                is_ref = true;
-                self.advance();
+		}
             }
+            self.expect_separator(")");
+            self.expect_separator(":");
             let type_hint = self.parse_type();
             self.advance();
-            let arg = FunctionArg {
-                name: arg_name,
-                type_hint: type_hint.unwrap(),
-                is_ref,
+            self.expect_separator(";");
+            let end = self.tokens.get(self.current - 1).cloned().unwrap().span.end;
+            return Spanned {
+		node: Node::ExTernStmt {
+                    name,
+                    args,
+                    return_type: type_hint.unwrap(),
+                    vardaic,
+		},
+		span: Span { start, end },
             };
-            args.push(arg);
-            if self.peek().unwrap().clone().kind == TokenType::Separator(','.to_string()) {
-                self.expect_separator(",");
-                if self.peek().unwrap().clone().kind == TokenType::Vardaic {
-                    self.advance();
-                    vardaic = true;
-                    break;
-                }
-            }
-        }
-        self.expect_separator(")");
-        self.expect_separator(":");
-        let type_hint = self.parse_type();
-        self.advance();
-        self.expect_separator(";");
-        let end = self.tokens.get(self.current - 1).cloned().unwrap().span.end;
-        Spanned {
-            node: Node::ExTernStmt {
-                name,
-                args,
-                return_type: type_hint.unwrap(),
-                vardaic,
-            },
-            span: Span { start, end },
-        }
+	}
+	let v = self.before().span.clone();
+	self.error("Expected on of ('fn'|'struct')".to_string(), &v);
+	exit(1);
     }
 
     fn parse_reval(&mut self) -> Spanned<Node> {
@@ -1287,7 +1297,7 @@ impl Parser {
     }
 
     fn is_expr_start(&self, arg: TokenType) -> bool {
-        match arg.clone() {
+	match arg.clone() {
             TokenType::Number(_num) => true,
             TokenType::Operator(sep) if "*" == sep || "&" == sep => true,
             TokenType::Ident(val) => true,
@@ -1355,10 +1365,17 @@ impl Parser {
         self.expect_separator("{");
         let mut fields = Vec::new();
         let mut meths = Vec::new();
+        let mut static_methods = vec![];
         while self.peek().unwrap().clone().kind != TokenType::Separator('}'.to_string()) {
             if self.next().kind == TokenType::Keyword("fn".to_owned()) {
                 let method = self.parse_func();
                 meths.push(method);
+                continue;
+            } else if self.next().kind == TokenType::Keyword("st".to_string()) {
+                self.advance();
+                if self.next().kind == TokenType::Keyword("fn".to_string()) {
+                    static_methods.push(self.parse_func().unwrap());
+                }
                 continue;
             }
             let fe_start = self.peek().unwrap().clone().span.start;
@@ -1394,6 +1411,7 @@ impl Parser {
             name,
             fields,
             meths,
+            statics: Some(static_methods),
         };
         let end = self.tokens.get(self.current - 1).unwrap().clone().span.end;
         return Spanned {
@@ -1492,7 +1510,7 @@ impl Parser {
                     self.advance();
                 }
                 TokenType::Keyword(k) if k == "let" => {
-                    let m = self.parse_mk_stmt();
+                    let m = self.parse_let_stmt();
                     stmts.push(m);
                     continue;
                 }
@@ -1632,7 +1650,9 @@ impl Parser {
         self.advance();
         let cond = self.parse_logic_or();
         self.expect_separator("{");
+        self.is_inloop = true;
         let body = self.parse_body(false, true);
+        self.is_inloop = false;
         self.expect_separator("}");
         let end = self.next().span.end;
         Spanned {

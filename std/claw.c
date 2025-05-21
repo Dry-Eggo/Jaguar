@@ -54,6 +54,9 @@ void print_int(jaguar_int i) {
   jaguar_str d = buf;
   print(d);
 }
+
+extern int str_eq(jaguar_str s1, jaguar_str s2) { return (strcmp(s1, s2)); }
+
 void __panic(jaguar_str errmsg) {
   jaguar_str d = "[Jaguar panicked]: ";
   print(d);
@@ -114,6 +117,12 @@ extern jaguar_str jformat(jaguar_str fmt, ...) {
 void jprintln(jaguar_str fmt, ...) {
   jaguar_str p = jformat(fmt);
   println(p);
+}
+extern jaguar_str jinput(jaguar_str prompt) {
+  print(prompt);
+  char buffer[1024];
+  scanf("%s", buffer);
+  return strdup(buffer);
 }
 void panic(jaguar_str errmsg, jaguar_int LINE) {
   print(jformat("[Tixie Panicked][line: {d}]: ", LINE));

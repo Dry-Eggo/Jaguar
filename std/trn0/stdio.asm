@@ -99,6 +99,7 @@ write_int:
   pop rbx
   ret
 
+extern free
 global input
 ; rdi --> number of bytes to read
 ; rsi --> prompt

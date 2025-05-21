@@ -1,10 +1,6 @@
 pub(crate) mod backend;
 pub(crate) mod frontend;
-use std::{
-    hash::BuildHasherDefault,
-    net::ToSocketAddrs,
-    process::{Command, CommandArgs, exit},
-};
+use std::process::Command;
 
 use backend::codegen::Generator;
 use backend::parser;
@@ -93,7 +89,7 @@ fn main() {
                 .arg("-o")
                 .arg(cli.output.unwrap().to_string().clone())
                 .arg("/home/dry/Documents/Eggo/jaguar/std/claw.o")
-                .arg("/home/dry/Documents/Eggo/jaguar/std/stdtixie.o")
+                .arg("/home/dry/Documents/Eggo/jaguar/std/stdjr.o")
                 .arg("-no-pie")
                 .arg("-w")
                 .status();

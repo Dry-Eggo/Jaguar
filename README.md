@@ -97,6 +97,91 @@ fn main() {
 
 ---
 
+## Let Statements
+
+You can create a variable using the let statement.
+
+```jaguar
+
+  let foo: int = 3;
+
+```
+
+The Let statement takes:
+  * An Identifier
+  * A Type
+  * And a Value
+
+The type can be inferred by the compiler, Only if the type of the value is known
+
+```jaguar
+
+  let foo := "Hello"; // inferred as str
+  let bar := 32;      // inferred as int(i32)
+  let baz := 'W';     // inferred as char
+  let quux:= ["hello", "world"]; // not yet supported but will infer as list<str, 2>
+
+```
+
+---
+
+### Mutability Basics
+
+* **Immutabilty by default**
+    All Values and Variables in Jaguar are immutable unless explicitly declared mutable. This encourages safer, more predictable and intentional code and reduces accidental side effects.
+
+    * examples:
+``` jaguar
+
+    let w := 6; // immutable by default
+    let mut x := 9; // declared as mutable
+
+    let y : mut int = 6; // also declared as mutable
+    let mut z : mut int = 7; // redundant but allowed
+
+    let mut foo : int = 3; // mutable
+
+```
+
+* **Pointer Mutability vs Pointee Mutability**
+
+  * **ptr\<Foo\>** : **immutable** pointer to **immutable** Foo. 
+```jaguar
+
+  let bar : ptr<Foo> = &foo; // declaration.
+  bar = &baz; // error. cannot mutate immutable 'ptr<Foo>'
+  *bar = foo; // error. cannot mutate immutable 'Foo'
+
+```
+
+  * **mut ptr\<Foo\>** : **mutable** pointer to **immutable** Foo
+```jaguar
+
+  let bar : mut ptr<Foo> = &foo; // declaration.
+  bar = &baz; // mutating the pointer
+  *bar = foo; // error. cannot mutate immutable 'Foo'
+
+```
+
+  * **mut ptr\<mut Foo\>** : **mutable** pointer to **mutable** Foo
+```jaguar
+
+  let bar : mut ptr<mut Foo> = &foo; // declaration.
+  bar = &baz; // mutating the pointer
+  *bar = foo; // mutating the 'Foo'
+
+```
+
+  * **ptr\<mut Foo\>** : **immutable** pointer to **mutable** Foo
+```jaguar
+
+  let bar : mut ptr<Foo> = &foo; // declaration.
+  bar = &baz; // error. cannot mutate immutable 'ptr<Foo>'
+  *bar = foo; // mutating the 'Foo'
+
+```
+___
+
 ## Structs
 
 Structs are the core user-defined types in Jaguar. They can hold both data and methods.
@@ -118,7 +203,7 @@ struct Person {
   name: str,
   age: int,
 
-  fn sayHi(self) {
+  fn sayHi(self: ptr<Person>) {
     jprintln("{s} says hi", self.name);
   }
 }
@@ -196,32 +281,7 @@ is not allowed.
 
 **While loops** and **For-Each** loops aren't a feature yet but they are surely in my checklist.
 
-
-## Let Statements
-
-You can create a variable using the let statement.
-
-```jaguar
-
-  let foo: int = 3;
-
-```
-
-The Let statement takes:
-  * An Identifier
-  * A Type
-  * And a Value
-
-The type can be inferred by the compiler, Only if the type of the value is known
-
-```jaguar
-
-  let foo := "Hello"; // inferred as str
-  let bar := 32;      // inferred as int(i32)
-  let baz := 'W';     // inferred as char
-  let quux:= ["hello", "world"]; // not yet supported but will infer as list<str, 2>
-
-```
+---
 
 ## Modularization
 

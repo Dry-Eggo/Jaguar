@@ -1,0 +1,25 @@
+extern jprintln(fmt: str, ...): void;
+extern jinput(prompt: str): str;
+extern str_eq(s1: str, s2: str): int;
+
+
+bundle repl {
+	fn evaluate(expr: str) {
+		if str_eq(expr, "greet") == 0 {
+			jprintln("Earnest Greetings");
+		}
+	}
+}
+
+
+fn main {
+	let running := 1;
+	while running {
+		let expr := jinput("REPL@example> ");
+		if str_eq(expr, "exit") == 0 {
+			running = 0;
+		} else {
+			repl::evaluate(expr);
+		}
+	}
+}

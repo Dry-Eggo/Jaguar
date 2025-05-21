@@ -1,7 +1,5 @@
 use super::{
-    function::{Function, Generic_Function},
-    type_table::TTable,
-    var_table::VTable,
+    codegen::is_builtin, function::Function, ttype::Type, type_table::TTable, var_table::VTable,
 };
 #[derive(Debug, Clone)]
 pub struct Bundle {
@@ -11,7 +9,6 @@ pub struct Bundle {
     pub types: TTable,
     pub bundles: Vec<Bundle>,
     pub path: String,
-    pub gfunctions: Vec<Generic_Function>,
 }
 
 impl Bundle {
@@ -30,7 +27,6 @@ impl Bundle {
             types,
             bundles,
             path: p,
-            gfunctions: vec![],
         }
     }
     pub fn refuse_dup(&mut self, subject: String) -> Option<Bundle> {
@@ -39,5 +35,26 @@ impl Bundle {
         }
         let o = self.bundles.iter().find(|b| b.path == subject).cloned();
         o
+    }
+    pub fn wrap(&mut self, alias: &str) {
+        for f in &mut self.functions {
+            for arg in &mut f.args {
+                if !is_builtin(arg.type_hint.clone()) {
+                    arg.type_hint = Type::BundledType {
+                        bundle: alias.clone().to_owned(),
+                        ty: Box::new(arg.type_hint.clone()),
+                    }
+                }
+            }
+            if !is_builtin(f.ty.clone()) {
+                f.ty = Type::BundledType {
+                    bundle: alias.clone().to_owned(),
+                    ty: Box::new(f.ty.clone()),
+                };
+            }
+        }
+        for b in &mut self.bundles {
+            b.wrap(alias);
+        }
     }
 }

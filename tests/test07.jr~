@@ -1,0 +1,18 @@
+extern jprintln(fmt: str, ...): void;
+
+struct Foo {
+	name: mut str,
+	fn bar(self: mut Foo): void {
+		self.name = "abdul"
+	}
+}
+
+fn write_int(i: mut int)  {
+	i = 7;
+	jprintln("{d}", i);
+}
+
+fn main {
+	let mut age : int = 5;
+	write_int(age);
+}

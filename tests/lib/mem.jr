@@ -29,9 +29,9 @@ struct Allocator {
 		self.current = (self.start as u64 + offset) as ptr<void>;
 		self.capacity = newcap;
 	}
-}
 
-fn new_allocator(capacity: u64): Allocator {
-	let p := malloc(capacity);
-	ret {start: p, current: p,  capacity: capacity};
+	st fn new(capacity: u64): Allocator {
+		let p := malloc(capacity);
+		ret {start: p, current: p,  capacity: capacity};	
+	}
 }

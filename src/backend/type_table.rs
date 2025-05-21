@@ -140,8 +140,12 @@ impl TTable {
     pub fn verify(&mut self, ty: Type) -> Option<Type> {
         self.content.keys().into_iter().find(|t| **t == ty).cloned()
     }
-    pub fn getLayout(&mut self, ty: Type) -> Option<StructLayout> {
-        self.content.get(&ty).cloned()
+    pub fn get_layout(&mut self, ty: Type) -> Option<StructLayout> {
+        let r = self.content.iter().find(|p| *p.0 == ty);
+        if r.is_some() {
+            return Some(r.unwrap().1.clone());
+        }
+        return None;
     }
     pub fn add_type(&mut self, ty: Type, b: StructLayout) -> () {
         self.content.insert(ty, b);
@@ -168,7 +172,6 @@ impl TTable {
                                 ty: Box::new(f.type_hint.clone()),
                             }
                         }
-                        Type::GenericAtom { ty } => f.type_hint = *ty.clone(),
                         _ => (),
                     }
                 }

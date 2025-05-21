@@ -3,11 +3,8 @@ all : round
 round:
 	cargo build
 	clear
-	@./target/debug/jagc ./tests/main.jr -o ./tests/main
 	@nasm -f elf64 ./std/trn0/stdio.asm -o ./std/stdjr.o
 	@gcc ./std/claw.c  -l./std/stdjr.o -o ./std/claw.o -c -static -g
-	@gcc -no-pie -static -o ./tests/main ./build/main.c ./std/stdjr.o ./std/claw.o -g -w
-	@./tests/main
 
 .Phony : clean build
 clean:

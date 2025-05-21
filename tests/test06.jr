@@ -1,0 +1,11 @@
+extern jprintln(fmt:str, ...): void;
+
+/* 
+ * test:
+ *		'null' keyword
+ */
+ 
+fn main {
+	/* Can be assigned to any pointer type */
+	let t : str = null;
+}

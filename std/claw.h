@@ -26,6 +26,8 @@ extern jaguar_int str_len(const char *);
 extern char char_to_upper(char *self);
 extern char char_to_lower(char *self);
 extern jaguar_str jformat(jaguar_str fmt, ...);
+extern int str_eq(jaguar_str s1, jaguar_str s2);
+extern jaguar_str jinput(jaguar_str prompt);
 void claw_itoa(jaguar_int i, char *buf);
 void print_int(jaguar_int i);
 void __panic(jaguar_str msg);

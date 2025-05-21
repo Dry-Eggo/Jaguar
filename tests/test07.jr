@@ -1,0 +1,18 @@
+extern fn jprintln(fmt: str, ...): void;
+
+struct Foo {
+	name: mut str,
+	fn bar(self: ptr<mut Foo>): void {
+		jprintln(self.name);
+	}
+	st fn new(name: str): Foo {
+		ret {name: name};
+	}
+}
+
+fn main {
+	let mut age : int = 5;
+	let test := Foo::new("Abduljabbar");
+	test.bar();
+	jprintln("{s}", test.name);
+}
